@@ -1,10 +1,10 @@
 attributes(global) subroutine bgk_cuf_kernel(n,omega,pdf,rho,ux,uy)
 implicit none
 
-#if WP_DOUBLE
-integer, parameter :: wp = 8
-#else
+#if WITH_SP
 integer, parameter :: wp = 4
+#else
+integer, parameter :: wp = 8
 #endif
 
 integer, intent(in) :: n
