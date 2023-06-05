@@ -1,7 +1,13 @@
 program main_taylor_green
 
    use precision, only: wp
-   use lattice
+   use lattice, only: lattice_grid, &
+      set_pdf_to_equilibrium, &
+      alloc_grid, &
+      update_macros, &
+      output_gnuplot, &
+      set_properties, &
+      dealloc_grid
 
    use taylor_green, only: taylor_green_t, pi
 !   use collision_bgk, only: collide_bgk
@@ -12,8 +18,8 @@ program main_taylor_green
 
    implicit none (type,external)
 
-   integer, parameter :: nx = 120, ny = 120
    integer, parameter :: nprint = 20000
+   integer :: nx, ny
 
    integer :: step, nsteps
 
@@ -33,6 +39,10 @@ program main_taylor_green
 
 !$ print *, "--- In OpenMP mode ---"
 !$ print *, "Maximimum number of threads: ", omp_get_max_threads()
+
+   
+   call read_env(nx,ny)
+   print *, "nx, ny = ", nx, ny
 
    call alloc_grid(grid, nx, ny, nf = 2)
 
@@ -134,6 +144,33 @@ program main_taylor_green
    call dealloc_grid(grid)
 
 contains
+
+   subroutine read_env(nx,ny)
+      integer, intent(out) :: nx, ny
+
+      character(len=32) :: value
+      integer :: status, n
+
+      CALL GET_ENVIRONMENT_VARIABLE('N', VALUE, status=STATUS)
+
+      if (status == 1) then
+         ! Variable does not exist, use default values
+         nx = 100
+         ny = 100
+      else if (status == 2) then
+         write(*,*) "Error: processor doesn't support environment variables"
+         stop
+      else if (status == -1) then
+         write(*,*) "Error: value is not long enough to hold variable"
+         stop
+      else
+         ! Everything should be okay
+         read(value,*) n
+         nx = n
+         ny = n
+      end if
+
+   end subroutine
 
    subroutine apply_initial_condition(case, grid)
       type(taylor_green_t), intent(in) :: case

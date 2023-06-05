@@ -29,16 +29,10 @@ module lattice
       integer :: nx, ny
 
       real(wp), allocatable :: f(:,:,:,:)
-      !dir$ attributes align: 64::f
 
-      !> Macroscopic fields (contiguous storage) for simple output
-      real(wp), allocatable :: mf(:,:,:)
-      !dir$ attributes align: 64::mf
-
-      !> Views of the macroscopic fields, for easier referencing
-      real(wp), pointer :: rho(:,:) => null()
-      real(wp), pointer ::  ux(:,:) => null()
-      real(wp), pointer ::  uy(:,:) => null()
+      real(wp), allocatable :: rho(:,:)
+      real(wp), allocatable ::  ux(:,:)
+      real(wp), allocatable ::  uy(:,:)
       
       real(wp) :: nu, dt, tau
       real(wp) :: omega, trt_magic
@@ -140,17 +134,13 @@ contains
       nf_ = 2
       if (present(nf)) nf_ = nf
 
+      ! PDF memory
       allocate(grid%f(ny_,nx,0:8,nf_))
 
-      allocate(grid%mf(ny,nx,3))
-
-      !allocate(grid%rho(ny,nx))
-      !allocate(grid%ux(ny,nx))
-      !allocate(grid%uy(ny,nx))
-      !
-      ! Associate pointer components
-      !
-      call establish_macro_pointers(grid)
+      ! Macroscopic fields
+      allocate(grid%rho(ny,nx))
+      allocate(grid%ux(ny,nx))
+      allocate(grid%uy(ny,nx))
 
       !
       ! Initialize field pointers
@@ -177,15 +167,6 @@ contains
          open(newunit=grid%logunit,file=logfile_,status='unknown')
       end if
 
-   contains
-
-      subroutine establish_macro_pointers(this)
-         type(lattice_grid), intent(inout), target :: this
-         this%rho => this%mf(:,:,1)
-         this%ux  => this%mf(:,:,2)
-         this%uy  => this%mf(:,:,3)
-      end subroutine
-
    end subroutine
 
    subroutine dealloc_grid(grid)
@@ -200,13 +181,6 @@ contains
       if (isopen) then
          close(grid%logunit)
       end if
-
-      !
-      ! nullify pointer components
-      !
-      nullify(grid%uy)
-      nullify(grid%ux)
-      nullify(grid%rho)
 
       !
       ! deallocate allocatable storage
