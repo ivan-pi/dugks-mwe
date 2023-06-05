@@ -46,9 +46,12 @@ contains
       ld = size(grid%f,1)
       tau_d = grid%tau/grid%dt
 
-      call copy_field(grid%nx, ld, &
-         fsrc = grid%f(:,:,:,grid%iold), &
-         fdst = grid%f(:,:,:,grid%inew))
+!      call copy_field(grid%nx, ld, &
+!         fsrc = grid%f(:,:,:,grid%iold), &
+!         fdst = grid%f(:,:,:,grid%inew))
+
+      ! Create a copy of the field
+      grid%f(:,:,:,grid%inew) = grid%f(:,:,:,grid%iold)
       
       ! Collision for a full time-step
       omega = 1.0_wp/(tau_d + 0.5_wp)
@@ -535,45 +538,7 @@ contains
       real(wp), intent(in) :: fsrc(ld,nx,0:8)
       real(wp), intent(out) :: fdst(ld,nx,0:8)
 
-      !$omp parallel default(private) shared(fsrc,fdst)
-
-      !$omp workshare
-      fdst(:,:,0) = fsrc(:,:,0)
-      !$omp end workshare
-
-      !$omp workshare
-      fdst(:,:,1) = fsrc(:,:,1)
-      !$omp end workshare
-
-      !$omp workshare
-      fdst(:,:,2) = fsrc(:,:,2)
-      !$omp end workshare
-
-      !$omp workshare
-      fdst(:,:,3) = fsrc(:,:,3)
-      !$omp end workshare
-
-      !$omp workshare
-      fdst(:,:,4) = fsrc(:,:,4)
-      !$omp end workshare
-
-      !$omp workshare
-      fdst(:,:,5) = fsrc(:,:,5)
-      !$omp end workshare
-
-      !$omp workshare
-      fdst(:,:,6) = fsrc(:,:,6)
-      !$omp end workshare
-
-      !$omp workshare
-      fdst(:,:,7) = fsrc(:,:,7)
-      !$omp end workshare
-
-      !$omp workshare
-      fdst(:,:,8) = fsrc(:,:,8)
-      !$omp end workshare
-
-      !$omp end parallel
+      fdst = fsrc
 
    end subroutine copy_field
 
