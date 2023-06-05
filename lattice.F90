@@ -1,7 +1,7 @@
 module lattice
 
    use precision
-   use output_gnuplot, only: output_gnuplot_grid
+   use gnuplot_io, only: output_gnuplot_grid
 
    implicit none
    private

@@ -1,4 +1,4 @@
-module output_gnuplot
+module gnuplot_io
    use precision, only: wp
    implicit none
    private

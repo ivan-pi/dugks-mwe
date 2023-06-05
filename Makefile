@@ -8,7 +8,7 @@ LDLIBS =
 
 all: main_taylor_green
 
-OBJECTS = precision.o output_gnuplot.o lattice.o periodic_dugks.o taylor_green.o
+OBJECTS = precision.o gnuplot_io.o lattice.o periodic_dugks.o taylor_green.o
 
 main_taylor_green: main_taylor_green.f90 $(OBJECTS)
 	$(FC) $(LDFLAGS) $(FCFLAGS) -o $@ $^ $(LDLIBS)
@@ -19,7 +19,7 @@ main_taylor_green: main_taylor_green.f90 $(OBJECTS)
 precision.o precision.mod: precision.F90
 	$(FC) $(FCFLAGS) -c $<
 
-output_gnuplot.o output_gnuplot.mod: output_gnuplot.F90
+gnuplot_io.o gnuplot_io.mod: gnuplot_io.F90
 	$(FC) $(FCFLAGS) -c $<
 
 lattice.o lattice.mod: lattice.F90
@@ -34,8 +34,8 @@ taylor_green.o taylor_green.mod: taylor_green.f90
 #
 # Module dependencies
 #
-output_gnuplot.mod: precision.mod
-lattice.mod: precision.mod output_gnuplot.mod
+gnuplot_io.mod: precision.mod
+lattice.mod: precision.mod gnuplot_io.mod
 periodic_dugks.mod: precision.mod lattice.mod
 taylor_green.mod: precision.mod lattice.mod
 
