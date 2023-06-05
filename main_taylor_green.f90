@@ -16,7 +16,10 @@ program main_taylor_green
 
 !$ use omp_lib
 
-   implicit none (type,external)
+! amdflang: F90-S-0034-Syntax error
+!   implicit none (type,external)
+
+   implicit none
 
    integer, parameter :: nprint = 20000
    integer :: nx, ny
