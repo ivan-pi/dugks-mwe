@@ -179,7 +179,7 @@ contains
 
    end subroutine
 
-
+#if defined(BGK_OFFLOAD)
    subroutine kernel_bgk_omp_offload(nx,ny,ld,f,omega)
       integer, intent(in) :: nx,ny,ld
       real(wp), intent(inout) :: f(ld,nx,0:8)
@@ -251,7 +251,7 @@ contains
       end do
 
    end subroutine
-
+#endif
 
 
    subroutine dugks_stream(grid)
