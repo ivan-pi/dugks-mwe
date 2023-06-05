@@ -31,7 +31,8 @@ program main_taylor_green
    integer, parameter :: dp = kind(1.0d0)
    real(dp) :: sbegin, send
 
-   print *, "Maxmimum number of threads: ", omp_get_max_threads()
+!$ print *, "--- In OpenMP mode ---"
+!$ print *, "Maximimum number of threads: ", omp_get_max_threads()
 
    call alloc_grid(grid, nx, ny, nf = 2)
 
