@@ -105,7 +105,7 @@ program main_taylor_green
    call apply_initial_condition(tg, grid)
 
    call output_gnuplot(grid,step=0)
-   call grid%logger(step=0)
+!   call grid%logger(step=0)
 
 !$ sbegin = omp_get_wtime()
 
@@ -122,14 +122,14 @@ program main_taylor_green
             maxval(hypot(grid%ux,grid%uy))
 
          call output_gnuplot(grid,step)
-         call grid%logger(step)
+!         call grid%logger(step)
       end if
 
       if (t >= tmax) then
          ! --- Exit Timeloop ---
          call update_macros(grid)
          call output_gnuplot(grid,step)
-         call grid%logger(step)
+!         call grid%logger(step)
          exit time
       end if
 
