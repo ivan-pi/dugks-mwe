@@ -3,13 +3,15 @@
 
 FC = gfortran
 FCFLAGS = -Wall -fopenmp
+LDFLAGS =
+LDLIBS =
 
 all: main_taylor_green
 
 OBJECTS = precision.o output_gnuplot.o lattice.o periodic_dugks.o taylor_green.o
 
 main_taylor_green: main_taylor_green.f90 $(OBJECTS)
-	$(FC) $(FCFLAGS) -o $@ $^
+	$(FC) $(LDFLAGS) $(FCFLAGS) -o $@ $^ $(LDLIBS)
 
 #
 # Modules

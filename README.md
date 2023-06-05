@@ -14,10 +14,15 @@ To-Do:
 * Implement target offload in collision step (`collision_bgk.f90`)
 * OpenMP data regions (`lattice.F90`)
 
+Build steps:
 ```
 $ make FC=gfortran FCFLAGS="-fopenmp -O3 -DBGK_OFFLOAD"
+```
+The flags `LDFLAGS` and `LDLIBS` can be modified if needed.
+
+Running the program:
+```
 $ N=120 ./main_taylor_green <CFL>
 ```
-
 `CFL` is the Courant number (a number less than 1, e.g. 0.5)
 
