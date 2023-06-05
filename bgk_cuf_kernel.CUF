@@ -1,0 +1,96 @@
+attributes(global) subroutine bgk_cuf_kernel(n,omega,pdf,rho,ux,uy)
+implicit none
+
+#if WP_DOUBLE
+integer, parameter :: wp = 8
+#else
+integer, parameter :: wp = 4
+#endif
+
+integer, intent(in) :: n
+real(wp), intent(in) :: omega
+real(wp), intent(inout) :: pdf(n,0:8)
+real(wp), intent(out) :: rho(n), ux(n), uy(n)
+
+real(wp) :: omegabar, omega_w0, omega_ws, omega_wd
+real(wp) :: f(0:8), invrho
+real(wp) :: vel_trm_13, vel_trm_24
+real(wp) :: vel_trm_57, vel_trm_68
+real(wp) :: velxpy, velxmy, indp
+
+real(wp), parameter :: w0 = 4._wp / 9._wp
+real(wp), parameter :: ws = 1._wp / 9._wp
+real(wp), parameter :: wd = 1._wp / 36._wp
+
+real(wp), parameter :: one_third = 1.0_wp / 3.0_wp
+real(wp), parameter :: one_half = 1.0_wp / 2.0_wp
+real(wp), parameter :: th = 3.0_wp / 2.0_wp
+
+integer :: i
+
+! TODO: Check this is correct
+! example I found online used blockDim%x * (blockIdx%x - 1) + threadIdx%x
+! probably depends on how you define your arrays?
+i = blockDim%x * blockIdx%x + threadIdx%x
+
+if (i <= n) then
+
+   omegabar = 1 - omega
+
+   omega_w0 = 3 * omega * w0
+   omega_ws = 3 * omega * ws
+   omega_wd = 3 * omega * wd
+
+   !
+   ! pull pdfs travelling in different directions
+   !
+   f = pdf(i,0:8)
+
+   !
+   ! density
+   !
+   rho(i) = (((f(5) + f(7)) + (f(6) + f(8)))  + &
+            ((f(1) + f(3)) + (f(2) + f(4)))) + f(0)
+
+   !
+   ! velocity
+   !
+   invrho = 1.0_wp / rho(i)
+   ux(i) = invrho * (((f(5) - f(7)) + (f(8) - f(6))) + (f(1) - f(3)))
+   uy(i) = invrho * (((f(5) - f(7)) + (f(6) - f(8))) + (f(2) - f(4)))
+
+   !
+   ! direction independent part
+   !
+   indp = one_third - one_half * (ux(i)**2 + uy(i)**2)
+
+   !
+   ! update PDF's
+   !
+   pdf(i,0) = omegabar*f(0) + omega_w0*rho(i)*indp
+
+   vel_trm_13 = indp + th * ux(i) * ux(i)
+
+   pdf(i,1) = omegabar*f(1) + omega_ws * rho(i) * (vel_trm_13 + ux(i))
+   pdf(i,3) = omegabar*f(3) + omega_ws * rho(i) * (vel_trm_13 - ux(i))
+
+   vel_trm_24 = indp + th * uy(i) * uy(i)
+
+   pdf(i,2) = omegabar*f(2) + omega_ws * rho(i) * (vel_trm_24 + uy(i))
+   pdf(i,4) = omegabar*f(4) + omega_ws * rho(i) * (vel_trm_24 - uy(i))
+
+   velxpy = ux(i) + uy(i)
+   vel_trm_57 = indp + th * velxpy * velxpy
+
+   pdf(i,5) = omegabar*f(5) + omega_wd * rho(i) * (vel_trm_57 + velxpy)
+   pdf(i,7) = omegabar*f(7) + omega_wd * rho(i) * (vel_trm_57 - velxpy)
+
+   velxmy = ux(i) - uy(i)
+   vel_trm_68 = indp + th * velxmy * velxmy
+
+   pdf(i,6) = omegabar*f(6) + omega_wd * rho(i) * (vel_trm_68 - velxmy)
+   pdf(i,8) = omegabar*f(8) + omega_wd * rho(i) * (vel_trm_68 + velxmy)
+
+end if
+
+end subroutine bgk_cuf_kernel
