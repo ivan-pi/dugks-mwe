@@ -16,7 +16,7 @@ To-Do:
 
 Build steps:
 ```
-$ make FC=gfortran FCFLAGS="-fopenmp -O3 -DBGK_OFFLOAD"
+$ make FC=gfortran FCFLAGS="-fopenmp -O3 -march=native"
 ```
 The flags `LDFLAGS` and `LDLIBS` can be modified if needed.
 
