@@ -1,0 +1,18 @@
+# Zhu et al., JCP 333, 2017, 227-246, Table 1
+# Spatial convergence data for off-lattice LBM, obtained under
+# acoustic scaling
+
+# DUGKS
+16 4.1e-3
+32 1.1e-3
+64 2.7e-4
+128 6.1e-5
+
+
+# Bardow
+16 1.7e-2
+32 4.4e-3
+64 1.1e-3
+128 2.7e-4
+
+
