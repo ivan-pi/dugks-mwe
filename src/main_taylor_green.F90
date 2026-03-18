@@ -314,6 +314,7 @@ contains
 
 
    function calc_L2_norm(case, grid, t) result(nrm)
+      ! TODO: move this function to the taylor_green module
       type(taylor_green_t), intent(in) :: case
       type(lattice_grid), intent(in) :: grid
       real(wp), intent(in) :: t
@@ -321,13 +322,6 @@ contains
 
       real(wp), allocatable :: pa(:,:), uxa(:,:), uya(:,:)
       real(wp) :: above, below
-
-      interface
-         function flang_l2_norm(n,u,v) result(res)
-             integer :: n
-             real(kind(1.0d0)) :: u(n), v(n), res
-         end function
-      end interface
 
       allocate(pa,  mold=grid%rho) ! not actually used
       allocate(uxa, mold=grid%ux)
@@ -353,10 +347,6 @@ contains
       !below = sum(uxa**2 + uya**2)
       !nrm = sqrt(above/below)
       nrm = sqrt(above) / umax
-
-      !above = flang_l2_norm(nx*ny,grid%ux-uxa,grid%uy-uya)
-      !below = flang_l2_norm(nx*ny,uxa,uya)
-      !nrm = above/below
 
    end function
 
