@@ -1,0 +1,40 @@
+{
+  "version": 3,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 21,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "base-gnu",
+      "hidden": true,
+      "displayName": "Gfortran Base",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_Fortran_COMPILER": "gfortran",
+        "DUGKS": "OFF"
+      }
+    },
+    {
+      "name": "gnu-debug",
+      "displayName": "Gfortran Debug",
+      "description": "Debug build with check flags",
+      "inherits": "base-gnu",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_Fortran_FLAGS_DEBUG": "-Og -g -Wall -fcheck=all -fbacktrace"
+      }
+    },
+    {
+      "name": "gnu-release",
+      "displayName": "Gfortran Release",
+      "description": "Optimized release build",
+      "inherits": "base-gnu",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_Fortran_FLAGS_RELEASE": "-O3 -ffast-math"
+      }
+    }
+  ]
+}

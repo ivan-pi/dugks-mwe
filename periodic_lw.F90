@@ -1,171 +1,4 @@
 
-module mlbm_stream_lw
-use precision, only: wp
-implicit none
-private
-
-public :: lw2_fem_weights
-public :: stream_lw2_fem
-
-real(wp), parameter :: C(-1:1,-1:1,1:8) = reshape([&
-    [1,0,-1,4,0,-4,1,0,-1], &
-    [-1,-4,-1,0,0,0,1,4,1], &
-    [-1,0,1,-4,0,4,-1,0,1], &
-    [1,4,1,0,0,0,-1,-4,-1], &
-    [2,4,0,4,0,-4,0,-4,-2], &
-    [0,-4,-2,4,0,-4,2,4,0], &
-    [-2,-4,0,-4,0,4,0,4,2], &
-    [0,4,2,-4,0,4,-2,-4,0]] / 12.0_wp, [3,3,8])
-
-real(wp), parameter :: D(-1:1,-1:1,1:8) = reshape([&
-    [-1,2,-1,-4,8,-4,-1,2,-1], &
-    [-1,-4,-1,2,8,2,-1,-4,-1], &
-    [-1,2,-1,-4,8,-4,-1,2,-1], &
-    [-1,-4,-1,2,8,2,-1,-4,-1], &
-    [-5,-2,1,-2,16,-2,1,-2,-5], &
-    [1,-2,-5,-2,16,-2,-5,-2,1], &
-    [-5,-2,1,-2,16,-2,1,-2,-5], &
-    [1,-2,-5,-2,16,-2,-5,-2,1]] / 6.0_wp, [3,3,8])
-
-integer :: nhalo = 1
-
-contains
-
-function lw2_fem_weights(dt,imeth) result(w)
-   real(wp), intent(in) :: dt
-   integer, intent(in) :: imeth
-
-   real(wp) :: w(-1:1,-1:1,1:8)
-
-   real(wp), parameter :: cx(0:8) = [0, 1, 0, -1, 0, 1, -1, -1, 1]
-   real(wp), parameter :: cy(0:8) = [0, 0, 1, 0, -1, 1, 1, -1, -1]
-
-   ! FDM weights (mainly for testing purposes)
-   if (imeth == 1) then
-      central_fdm: block
-         real(wp), dimension(-1:1,-1:1) :: fx, fy, fxx, fxy, fyy
-         integer :: k
-
-         fx  = 0
-         fy  = 0
-         fxx = 0
-         fxy = 0
-         fyy = 0
-
-         !fy( :,0) = [1,0,-1]/2.0_wp
-         !fx(0, :) = [1,0,-1]/2.0_wp
-
-         fy(:,-1) = [1,0,-1]/12.0_wp
-         fy(:, 0) = [1,0,-1]/3.0_wp
-         fy(:, 1) = [1,0,-1]/12.0_wp
-
-         fx(-1,:) = [1,0,-1]/12.0_wp
-         fx( 0,:) = [1,0,-1]/3.0_wp
-         fx( 1,:) = [1,0,-1]/12.0_wp
-
-
-         fyy(:,0) = [1,-2,1]
-         fxx(0,:) = [1,-2,1]
-
-         fxy( 1, 1) =  1
-         fxy(-1, 1) = -1
-         fxy(-1,-1) =  1
-         fxy( 1,-1) = -1
-
-         fxy = fxy/4.0_wp
-
-         do k = 1, 8
-            w(:,:,k) = -dt*(cx(k)*fx + cy(k)*fy) +&
-               0.5_wp*dt**2*(cx(k)**2*fxx + 2.0_wp*cx(k)*cy(k)*fxy + cy(k)**2*fyy)
-         end do
-      end block central_fdm
-      return
-   end if
-
-   ! Default weights are the FEM ones
-   fem: block
-      real(wp), dimension(-1:1,-1:1,1:8) :: C, D
-      integer :: k
-      do k = 1, 8
-
-         C( 0, 0, k) = 0
-         C( 1, 0, k) =  cx(k)/3.0_wp
-         C( 0, 1, k) =  cy(k)/3.0_wp
-         C(-1, 0, k) = -cx(k)/3.0_wp
-         C( 0,-1, k) = -cy(k)/3.0_wp
-         C( 1, 1, k) = ( cx(k) + cy(k))/12.0_wp
-         C(-1, 1, k) = (-cx(k) + cy(k))/12.0_wp
-         C(-1,-1, k) = (-cx(k) - cy(k))/12.0_wp
-         C( 1,-1, k) = ( cx(k) - cy(k))/12.0_wp
-
-         D( 0, 0, k) = ( 4*cx(k)**2 + 4*cy(k)**2) / 3.0_wp
-         D( 1, 0, k) = (-2*cx(k)**2 +   cy(k)**2) / 3.0_wp
-         D( 0, 1, k) = (   cx(k)**2 - 2*cy(k)**2) / 3.0_wp
-         D(-1, 0, k) = (-2*cx(k)**2 +   cy(k)**2) / 3.0_wp
-         D( 0,-1, k) = (   cx(k)**2 - 2*cy(k)**2) / 3.0_wp
-         D( 1, 1, k) = (-cx(k)**2 - 3*cx(k)*cy(k) - cy(k)**2) / 6.0_wp
-         D(-1, 1, k) = (-cx(k)**2 + 3*cx(k)*cy(k) - cy(k)**2) / 6.0_wp
-         D(-1,-1, k) = (-cx(k)**2 - 3*cx(k)*cy(k) - cy(k)**2) / 6.0_wp
-         D( 1,-1, k) = (-cx(k)**2 + 3*cx(k)*cy(k) - cy(k)**2) / 6.0_wp
-
-         ! x- and y-indexes are reversed below
-         C(:,:,k) = transpose(C(:,:,k))
-         D(:,:,k) = transpose(D(:,:,k))
-      end do
-
-      w = -dt*C - 0.5_wp*dt**2*D
-
-   end block fem
-
-end function
-
-subroutine stream_lw2_fem(nx,ny,fsrc,fdst,w)
-   integer, intent(in), value :: nx, ny
-   real(wp), intent(in) :: fsrc(1-nhalo:ny+nhalo,1-nhalo:nx+nhalo,0:8)
-   real(wp), intent(in) :: w(-1:1,-1:1,1:8)
-   real(wp), intent(inout) :: fdst(1-nhalo:ny+nhalo,1-nhalo:nx+nhalo,0:8)
-
-   integer :: i, j, k
-
-   ! Rest particles
-   fdst(1:ny,1:nx,0) = fsrc(1:ny,1:nx,0)
-
-   ! We implicitly assume that h = 1
-
-   !$omp parallel default(private) shared(nx,ny,fsrc,fdst) firstprivate(w)
-
-   !$omp do collapse(2)
-   do k = 1, 8
-      !$omp tile sizes(1,128)
-      do j = 1, nx
-      do i = 1, ny
-         block
-            real(wp) :: delta, tmp(-1:1,-1:1)
-
-            tmp = w(-1:1,-1:1,k)*fsrc(i-1:i+1,j-1:j+1,k)
-!            delta = sum(w(-1:1,-1:1,k)*fsrc(i-1:i+1,j-1:j+1,k))
-
-            delta = (tmp(1,1) + tmp(-1,-1)) + (tmp(-1,1) + tmp(1,-1))
-            delta = delta + ((tmp(1,0) + tmp(-1,0)) + (tmp(0,1) + tmp(0,-1)))
-            delta = delta + tmp(0,0)
-
-            fdst(i,j,k) = fsrc(i,j,k) + delta
-         end block
-      end do
-      end do
-   end do
-
-   !$omp end parallel
-
-end subroutine
-
-end module
-
-
-
-
-
-
 #ifndef NCOLLAPSE
 #define NCOLLAPSE 2
 #endif
@@ -226,14 +59,11 @@ contains
    end subroutine
 
    subroutine lw_stream(grid)
-      use mlbm_stream_lw
+      use periodic_lw_fem, only: lw2_fem_weights, stream_lw2_fem
       class(lattice_grid), intent(inout) :: grid
 
-      procedure(lw_stream_kernel), pointer :: kernel => null()
-
-      real(wp), allocatable :: wfem(:,:,:)
-
 #if 1
+      procedure(lw_stream_kernel), pointer :: kernel => null()
       if (.not. associated(kernel)) then
          ! TODO: allow runtime selection
          kernel => lw_stream_kernel_fdm_v2
@@ -244,6 +74,7 @@ contains
          grid%f(:,:,:,grid%inew), &
          grid%dt)
 #else
+      real(wp), allocatable :: wfem(:,:,:)
       if (.not. allocated(wfem)) then
          wfem = lw2_fem_weights(grid%dt, IMETH = 0)
       end if
@@ -272,7 +103,7 @@ contains
       real(wp), intent(in) :: omega
 
       ! Collision variables
-      real(wp) :: drho, rho, irho, ux, uy, feq(0:8), f(0:8)
+      real(wp) :: drho, rho, ux, uy, feq(0:8), f(0:8)
       real(wp) :: indp, uxx, uyy, uxpy, uxmy
       real(wp) :: omegabar
       real(wp) :: omega_w0, omega_ws, omega_wd
@@ -508,7 +339,7 @@ contains
             do i = 1, ny
 
             block
-               real(wp) :: dE, dW, dN, dS, dNE, dNW, delta
+               real(wp) :: dE, dW, dN, dS, dNE, dNW
 
                dE = fsrc(i,j+1,k) - fsrc(i,j,k)
                dW = fsrc(i,j,k) - fsrc(i,j-1,k)
@@ -578,12 +409,12 @@ contains
 
       real(wp) :: omegabar, omega_w0, omega_ws, omega_wd
       real(wp) :: t0,t1,t2,t3,t4,t5,t6,t7,t8
-      real(wp) :: cu, usqr, invrho, drho
+      real(wp) :: drho
       real(wp) :: vel_trm_13, vel_trm_24
       real(wp) :: vel_trm_57, vel_trm_68
       real(wp) :: velxpy, velxmy
 
-      integer :: i, j, k
+      integer :: i, j
 
       real(wp), parameter :: one_third = 1.0_wp / 3.0_wp
       real(wp), parameter :: one_half = 1.0_wp / 2.0_wp
