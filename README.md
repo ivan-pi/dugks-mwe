@@ -1,5 +1,11 @@
 # dugks-mwe
 
+Build instructions:
+```
+cmake -B build --preset gnu-release [-DDUGKS=ON|OFF]
+cmake --build build -j 4
+```
+
 Preprocessor flags:
 * `-DSPLIT` - use split collision kernel (no offloading available)
 * `-DDUGKS` - use DUGKS mode (default is an FVM scheme)
@@ -11,18 +17,20 @@ Environment variables:
 * OpenMP variables (`OPENMP_NUM_THREADS`)
 
 To-Do:
-* Implement target offload in collision step (`collision_bgk.f90`)
+* Better setting parsing
+* Implement target offload in collision step
 * OpenMP data regions (`lattice.F90`)
 
-Build steps:
+To run the progam use,
+```
+N=120 ./main_taylor_green <CFL>
+```
+where `CFL` is the Courant number (< 1)
+
+---
+
+Older Make-based build:
 ```
 $ make FC=gfortran FCFLAGS="-fopenmp -O3 -march=native"
 ```
 The flags `LDFLAGS` and `LDLIBS` can be modified if needed.
-
-Running the program:
-```
-$ N=120 ./main_taylor_green <CFL>
-```
-`CFL` is the Courant number (a number less than 1, e.g. 0.5)
-
