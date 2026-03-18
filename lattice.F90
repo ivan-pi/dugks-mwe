@@ -1,6 +1,6 @@
 module lattice
 
-   use precision
+   use precision, only: wp, dp, walltime
    use gnuplot_io, only: output_gnuplot_grid
 
    implicit none
@@ -8,19 +8,20 @@ module lattice
 
    public :: wp
    public :: lattice_grid
+   public :: perform_step
 
    public :: alloc_grid, dealloc_grid
 
    public :: set_properties
+   public :: report_bw
 
    public :: update_macros
    
    public :: output_gnuplot
 
    public :: set_pdf_to_equilibrium
-   public :: equilibrium
 
-   public :: cx, cy, csqr
+   public :: cx, cy, csqr, w0, ws, wd, w, rho0, shift
 
    character(*), parameter :: FMT_REAL_SP = '(es15.8e2)'
 
@@ -30,7 +31,7 @@ module lattice
 
       real(wp), allocatable :: f(:,:,:,:)
 
-      real(wp), allocatable :: rho(:,:)
+      real(wp), allocatable :: rho(:,:), wrk(:,:)
       real(wp), allocatable ::  ux(:,:)
       real(wp), allocatable ::  uy(:,:)
       
@@ -42,12 +43,16 @@ module lattice
       
       procedure(collision_interface), pointer, pass(grid) :: collision => null()
       procedure(streaming_interface), pointer, pass(grid) :: streaming => null()
+      procedure(bc_interface),        pointer, pass(grid) :: bc => null()
 
       character(len=:), allocatable :: filename, foldername
 
       character(len=:), allocatable :: logfile
       procedure(gridlog_interface), pointer, pass(grid) :: logger => null()
       integer :: logunit
+
+      real(dp) :: ts = 0, tc = 0, tb = 0
+      integer :: total_steps = 0
    contains
       procedure :: set_output_folder
    end type
@@ -61,6 +66,10 @@ module lattice
          import lattice_grid
          class(lattice_grid), intent(inout) :: grid
       end subroutine
+      subroutine bc_interface(grid)
+         import lattice_grid
+         class(lattice_grid), intent(inout) :: grid
+      end subroutine
       subroutine gridlog_interface(grid, step)
          import lattice_grid
          class(lattice_grid), intent(in) :: grid
@@ -68,47 +77,27 @@ module lattice
       end subroutine
    end interface
 
-   real(wp), parameter :: cx(0:8) = [real(wp) :: 0, 1, 0, -1, 0, 1, -1, -1, 1]
-   real(wp), parameter :: cy(0:8) = [real(wp) :: 0, 0, 1, 0, -1, 1, 1, -1, -1]
+   real(wp), parameter :: cx(0:8) = [0, 1, 0, -1, 0, 1, -1, -1, 1]
+   real(wp), parameter :: cy(0:8) = [0, 0, 1, 0, -1, 1, 1, -1, -1]
 
-   real(wp), parameter :: w0 = 4._wp / 9._wp, &
-                          ws = 1._wp / 9._wp, &
-                          wd = 1._wp / 36._wp
+   real(wp), parameter :: w0 = 4.0_wp / 9.0_wp, &
+                          ws = 1.0_wp / 9.0_wp, &
+                          wd = 1.0_wp / 36.0_wp
+   real(wp), parameter :: w(0:8) = [w0,ws,ws,ws,ws,wd,wd,wd,wd]
 
-   real(wp), parameter :: csqr = 1._wp/3._wp
-   real(wp), parameter :: invcsqr = 1._wp/csqr
+   real(wp), parameter :: csqr = 1.0_wp/3.0_wp
+   real(wp), parameter :: invcsqr = 3.0_wp
 
+#ifdef DUGKS
+   ! DUGKS implementation does not support distribution shifting
+   logical, parameter :: shift = .false.
+#else
+   logical, parameter :: shift = .false.
+#endif
+   real(wp), parameter :: rho0 = 1.0_wp
+
+   integer, parameter :: nhalo = 1
 contains
-
-   pure function equilibrium(rho,ux,uy) result(feq)
-      real(wp), intent(in) :: rho, ux, uy
-      real(wp) :: feq(0:8)
-
-      real(wp) :: uxx, uyy, uxy, uxpy, uxmy
-      real(wp) :: indp
-
-      uxx = ux*ux
-      uyy = uy*uy
-      uxy = ux*uy
-
-      indp = 1.0_wp - 1.5_wp * (uxx + uyy)
-
-      feq(0) = w0*rho*(indp)
-      feq(1) = ws*rho*(indp + 3.0_wp*ux + 4.5_wp*uxx)
-      feq(2) = ws*rho*(indp + 3.0_wp*uy + 4.5_wp*uyy)
-      feq(3) = ws*rho*(indp - 3.0_wp*ux + 4.5_wp*uxx)
-      feq(4) = ws*rho*(indp - 3.0_wp*uy + 4.5_wp*uyy)
-
-      uxpy = ux + uy
-      feq(5) = wd*rho*(indp + 3.0_wp*uxpy + 4.5_wp*uxpy*uxpy)
-      feq(7) = wd*rho*(indp - 3.0_wp*uxpy + 4.5_wp*uxpy*uxpy)
-      
-      uxmy = ux - uy
-      feq(6) = wd*rho*(indp - 3.0_wp*uxmy + 4.5_wp*uxmy*uxmy)
-      feq(8) = wd*rho*(indp + 3.0_wp*uxmy + 4.5_wp*uxmy*uxmy)
-
-   end function
-
 
    subroutine alloc_grid(grid,nx,ny,nf,log)
       type(lattice_grid), intent(out) :: grid
@@ -120,27 +109,37 @@ contains
       integer :: nf_
       logical :: log_
       character(len=:), allocatable :: logfile_
-      integer :: ny_, rmd
 
       grid%nx = nx
       grid%ny = ny
-
-      ! Round to closest dimension of 16
-      ny_ = ny
-      rmd = mod(ny_, 16)      
-      if (rmd > 0) ny_ = ny_ + (16 - rmd)
 
       ! Number of pdf fields
       nf_ = 2
       if (present(nf)) nf_ = nf
 
       ! PDF memory
-      allocate(grid%f(ny_,nx,0:8,nf_))
+#ifdef DUGKS
+      allocate(grid%f(ny,nx,0:8,nf_))
+#else
+      allocate(grid%f(1-nhalo:ny+nhalo,1-nhalo:nx+nhalo,0:8,2))
+#endif
 
       ! Macroscopic fields
       allocate(grid%rho(ny,nx))
+      allocate(grid%wrk(ny,nx))
       allocate(grid%ux(ny,nx))
       allocate(grid%uy(ny,nx))
+
+      block
+         real(wp) :: macro_mem, pdf_mem
+
+         macro_mem = 4 * product(shape(grid%rho,kind=wp)) * wp
+         pdf_mem = product(shape(grid%f,kind=wp)) * wp
+
+         write(*,'(A,G0)') "Mem. macros (MB) = ", macro_mem / 1024.0_wp**2
+         write(*,'(A,G0)') "Mem. pdf (MB)    = ", pdf_mem / 1024.0_wp**2
+      end block
+
 
       !
       ! Initialize field pointers
@@ -236,35 +235,86 @@ contains
       real(wp) :: rho_, ux_, uy_
       integer :: x, y
 
-      associate( nx => grid%nx, &
-                 ny => grid%ny, &
-                 rho => grid%rho, &
-                 ux => grid%ux, &
-                 uy => grid%uy, &
-                 pdf => grid%f(:,:,:,grid%iold))
+      do x = 1, grid%nx
+         do y = 1, grid%ny
 
-      do x = 1, nx
-         do y = 1, ny
+            rho_ = grid%rho(y,x)
+             ux_ = grid%ux(y,x)
+             uy_ = grid%uy(y,x)
 
-            rho_ = rho(y,x)
-             ux_ =  ux(y,x)
-             uy_ =  uy(y,x)
-
-            pdf(y,x,:) = equilibrium(rho_, ux_, uy_)
+            grid%f(y,x,:,grid%iold) = &
+               equilibrium(grid%rho(y,x), grid%ux(y,x), grid%uy(y,x))
 
          end do
       end do
 
-      end associate
+   contains
 
-!      if (size(grid%f,4) > 2) then
-!         grid%f(:,:,:,grid%imid) = grid%f(:,:,:,grid%iold)
-!         grid%f(:,:,:,grid%inew) = grid%f(:,:,:,grid%iold)
-!         call grid%collision()
-!      end if
+      pure function equilibrium(rho,ux,uy) result(feq)
+         real(wp), intent(in) :: rho, ux, uy
+         real(wp) :: feq(0:8)
+
+         real(wp) :: uxx, uyy, uxpy, uxmy
+         real(wp) :: indp
+
+         uxx = ux*ux
+         uyy = uy*uy
+
+         if (shift) then
+            indp = -1.5_wp * (uxx + uyy)
+         else
+            indp = 1.0_wp - 1.5_wp * (uxx + uyy)
+         endif
+
+         feq(0) = w0*rho*(indp)
+         feq(1) = ws*rho*(indp + 3.0_wp*ux + 4.5_wp*uxx)
+         feq(2) = ws*rho*(indp + 3.0_wp*uy + 4.5_wp*uyy)
+         feq(3) = ws*rho*(indp - 3.0_wp*ux + 4.5_wp*uxx)
+         feq(4) = ws*rho*(indp - 3.0_wp*uy + 4.5_wp*uyy)
+
+         uxpy = ux + uy
+         feq(5) = wd*rho*(indp + 3.0_wp*uxpy + 4.5_wp*uxpy*uxpy)
+         feq(7) = wd*rho*(indp - 3.0_wp*uxpy + 4.5_wp*uxpy*uxpy)
+
+         uxmy = ux - uy
+         feq(6) = wd*rho*(indp - 3.0_wp*uxmy + 4.5_wp*uxmy*uxmy)
+         feq(8) = wd*rho*(indp + 3.0_wp*uxmy + 4.5_wp*uxmy*uxmy)
+
+         if (shift) feq = feq + w*(rho - rho0)
+
+      end function
 
    end subroutine
 
+
+#if 1
+   subroutine perform_step(grid)
+      type(lattice_grid), intent(inout) :: grid
+
+      real(dp) :: t(4)
+
+      t(1) = walltime()
+      call grid%collision()  ! update iold in place
+      t(2) = walltime()
+      call grid%bc()
+      t(3) = walltime()
+      call grid%streaming()
+      t(4) = walltime()
+
+      grid%tc = grid%tc + (t(2) - t(1))
+      grid%tb = grid%tb + (t(3) - t(2))
+      grid%ts = grid%ts + (t(4) - t(3))
+      grid%total_steps = grid%total_steps + 1
+
+      block
+         integer :: itmp
+         itmp = grid%iold
+         grid%iold = grid%inew
+         grid%inew = itmp
+      end block
+
+   end subroutine
+#else
    subroutine perform_step(grid)
       type(lattice_grid), intent(inout) :: grid
 
@@ -279,51 +329,47 @@ contains
       end block swap
 
    end subroutine
+#endif
 
    subroutine update_macros(grid)
       type(lattice_grid), intent(inout) :: grid
 
-      integer :: ld
-
-      ld = size(grid%f,1)
-
-      call update_macros_kernel(grid%nx, grid%ny, ld, &
-         grid%f(:,:,:,grid%inew), &
+      call update_macros_kernel(grid%nx, grid%ny, &
+         grid%f(:,:,:,grid%iold), &
          grid%rho, grid%ux, grid%uy)
 
    contains
 
-      subroutine update_macros_kernel(nx,ny,ld,f,grho,gux,guy)
-         integer, intent(in) :: nx, ny, ld
-         real(wp), intent(in) :: f(ld, nx, 0:8)
-         real(wp), intent(inout), dimension(ny,nx) :: grho, gux, guy
+      subroutine update_macros_kernel(nx,ny,f,rho,ux,uy)
+         integer, intent(in) :: nx, ny
+#ifdef DUGKS
+         real(wp), intent(in), contiguous :: f(:,:,0:)
+#else
+         real(wp), intent(in) :: f(0:ny+1,0:nx+1,0:8)
+#endif
+         real(wp), intent(out), dimension(ny,nx) :: rho, ux, uy
 
-         real(wp) :: rho, invrho, ux, uy, fs(0:8)
+         real(wp) :: invrho, fs(0:8)
          integer :: x, y
 
-         !$omp parallel do collapse(2) default(private) shared(nx,ny,f,grho,gux,guy)
+         !$omp parallel do default(private) shared(nx,ny,f,rho,ux,uy)
          do x = 1, nx
             do y = 1, ny
 
                fs = f(y,x,:)
 
                ! density
-               rho = fs(0) + (((fs(5) + fs(7)) + (fs(6) + fs(8))) + &
-                      ((fs(1) + fs(3)) + (fs(2) + fs(4)))) 
+               rho(y,x) = fs(0) + (((fs(5) + fs(7)) + (fs(6) + fs(8))) + &
+                      ((fs(1) + fs(3)) + (fs(2) + fs(4))))
 
-               grho(y,x) = rho
+               if (shift) rho(y,x) = rho(y,x) + rho0
 
                ! velocity
-               invrho = 1.0_wp/rho
-               ux = invrho * (((fs(5) - fs(7)) + (fs(8) - fs(6))) + (fs(1) - fs(3)))
-               uy = invrho * (((fs(5) - fs(7)) + (fs(6) - fs(8))) + (fs(2) - fs(4)))
-
-               gux(y,x) = ux
-               guy(y,x) = uy
+               ux(y,x) = (((fs(5) - fs(7)) + (fs(8) - fs(6))) + (fs(1) - fs(3))) / rho(y,x)
+               uy(y,x) = (((fs(5) - fs(7)) + (fs(6) - fs(8))) + (fs(2) - fs(4))) / rho(y,x)
 
             end do
          end do
-         !$omp end parallel do
 
       end subroutine
 
@@ -388,6 +434,25 @@ contains
       end if
 
       grid%foldername = foldername
+
+   end subroutine
+
+
+   subroutine report_bw(grid)
+      type(lattice_grid), intent(in) :: grid
+
+      real(wp) :: stream_bw, collision_bw
+      integer :: sz
+
+      sz = wp
+      stream_bw = 2 * product(real([grid%nx,grid%ny,9,sz],wp))
+
+      ! PDFs
+      collision_bw = 2 * product(real([grid%nx,grid%ny,9,sz],wp))
+      collision_bw = collision_bw + product(real([grid%nx,grid%ny,4,sz],wp))
+
+      print *, "Eff. BW (streaming) = ", stream_bw / (grid%ts/grid%total_steps) / 1024.0_wp**3
+      print *, "Eff. BW (collision) = ", collision_bw / (grid%tc/grid%total_steps) / 1024.0_wp**3
 
    end subroutine
 

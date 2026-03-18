@@ -6,10 +6,9 @@ module periodic_dugks
    implicit none
    private
 
-   public :: perform_step
-
    public :: dugks_stream
    public :: dugks_collide
+   public :: dugks_bc
 
 
    ! Parameters related to the D2Q9 lattice
@@ -22,19 +21,9 @@ module periodic_dugks
 
 contains
 
-   subroutine perform_step(grid)
-      type(lattice_grid), intent(inout) :: grid
-
-      call grid%collision()  ! update iold in place
-      call grid%streaming()
-
-      block
-         integer :: itmp
-         itmp = grid%iold
-         grid%iold = grid%inew
-         grid%inew = itmp
-      end block
-
+   subroutine dugks_bc(grid)
+      class(lattice_grid), intent(inout) :: grid
+      ! do nothing
    end subroutine
 
    subroutine dugks_collide(grid)
@@ -43,8 +32,6 @@ contains
       real(wp) :: omega, tau_d
       integer :: ld
 
-      ld = size(grid%f,1)
-      tau_d = grid%tau/grid%dt
 
 !      call copy_field(grid%nx, ld, &
 !         fsrc = grid%f(:,:,:,grid%iold), &
@@ -54,6 +41,7 @@ contains
       grid%f(:,:,:,grid%inew) = grid%f(:,:,:,grid%iold)
       
       ! Collision for a full time-step
+      tau_d = grid%tau/grid%dt
       omega = 1.0_wp/(tau_d + 0.5_wp)
 
 #if defined(BGK_OFFLOAD)
@@ -61,9 +49,10 @@ contains
          grid%f(:,:,:,grid%inew), &
          grid%omega)
 #else
-      call kernel_bgk(grid%nx, grid%ny, ld, &
+      call kernel_bgk(grid%nx, grid%ny, &
          grid%f(:,:,:,grid%inew), &
-         grid%omega)
+         grid%omega, &
+         grid%rho, grid%ux, grid%uy)
 #endif
 
    ! TODO: we can save one collision, see original paper by Guo
@@ -78,21 +67,23 @@ contains
          grid%f(:,:,:,grid%iold), &
          omega)
 #else
-      call kernel_bgk(grid%nx, grid%ny, ld, &
+      call kernel_bgk(grid%nx, grid%ny, &
          grid%f(:,:,:,grid%iold), &
-         omega)
+         omega, &
+         grid%rho, grid%ux, grid%uy)
 #endif
 
 
    end subroutine
 
 
-   subroutine kernel_bgk(nx,ny,ld,f,omega)
-      integer, intent(in) :: nx,ny,ld
-      real(wp), intent(inout) :: f(ld,nx,0:8)
+   subroutine kernel_bgk(nx,ny,f,omega,rho,ux,uy)
+      integer, intent(in) :: nx,ny
+      real(wp), intent(inout) :: f(ny,nx,0:8)
+      real(wp), intent(out) :: rho(ny,nx), ux(ny,nx), uy(ny,nx)
       real(wp), intent(in) :: omega
 
-      real(wp) :: rho(ny), invrho, ux(ny), uy(ny), indp(ny)
+      real(wp) :: invrho, indp
       real(wp) :: fs(0:8)
       real(wp) :: omegabar, omega_w0, omega_ws, omega_wd
 
@@ -102,7 +93,7 @@ contains
 
       integer :: x, y
 
-      !$omp parallel default(private) shared(f,omega,nx,ny)
+      !$omp parallel default(private) shared(f,omega,nx,ny,rho,ux,uy)
          
       omegabar = 1.0_wp - omega
 
@@ -110,73 +101,84 @@ contains
       omega_ws = 3.0_wp * omega * ws
       omega_wd = 3.0_wp * omega * wd
       
-      !$omp do schedule(static)
+      !$omp do collapse(2)
       do x = 1, nx
-
          do y = 1, ny
             ! pull pdfs travelling in different directions
             fs = f(y,x,:)
 
             ! density
-            rho(y) = (((fs(5) + fs(7)) + (fs(6) + fs(8))) + &
+            rho(y,x) = (((fs(5) + fs(7)) + (fs(6) + fs(8))) + &
                       ((fs(1) + fs(3)) + (fs(2) + fs(4)))) + fs(0)
 
-            invrho = 1.0_wp/rho(y)
+            invrho = 1.0_wp/rho(y,x)
 
             ! velocity
-            ux(y) = invrho * (((fs(5) - fs(7)) + (fs(8) - fs(6))) + (fs(1) - fs(3)))
-            uy(y) = invrho * (((fs(5) - fs(7)) + (fs(6) - fs(8))) + (fs(2) - fs(4)))
+            ux(y,x) = invrho * (((fs(5) - fs(7)) + (fs(8) - fs(6))) + (fs(1) - fs(3)))
+            uy(y,x) = invrho * (((fs(5) - fs(7)) + (fs(6) - fs(8))) + (fs(2) - fs(4)))
 
-            indp(y) = one_third - 0.5_wp * (ux(y)**2 + uy(y)**2)
+            indp = one_third - 0.5_wp * (ux(y,x)**2 + uy(y,x)**2)
 
             ! update direction 0
-            f(y,x,0) = omegabar*fs(0) + omega_w0*rho(y)*indp(y)
+            f(y,x,0) = omegabar*fs(0) + omega_w0*rho(y,x)*indp
          end do
-
-         !$omp simd
-         do y = 1, ny
-         
-            vel_trm_13 = indp(y) + 1.5_wp * ux(y) * ux(y)
-
-            f(y,x,1) = omegabar*f(y,x,1) + omega_ws * rho(y) * (vel_trm_13 + ux(y))
-            f(y,x,3) = omegabar*f(y,x,3) + omega_ws * rho(y) * (vel_trm_13 - ux(y))
-         
-         end do
-
-         !$omp simd
-         do y = 1, ny
-            
-            vel_trm_24 = indp(y) + 1.5_wp * uy(y) * uy(y)
-
-            f(y,x,2) = omegabar*f(y,x,2) + omega_ws * rho(y) * (vel_trm_24 + uy(y))
-            f(y,x,4) = omegabar*f(y,x,4) + omega_ws * rho(y) * (vel_trm_24 - uy(y))
-         
-         end do
-
-         !$omp simd
-         do y = 1, ny
-
-            velxpy = ux(y) + uy(y)
-            vel_trm_57 = indp(y) + 1.5_wp * velxpy * velxpy
-
-            f(y,x,5) = omegabar*f(y,x,5) + omega_wd * rho(y) * (vel_trm_57 + velxpy)
-            f(y,x,7) = omegabar*f(y,x,7) + omega_wd * rho(y) * (vel_trm_57 - velxpy)
-         
-         end do
-
-         !$omp simd
-         do y = 1, ny
-            
-            velxmy = ux(y) - uy(y)
-            vel_trm_68 = indp(y) + 1.5_wp * velxmy * velxmy
-            
-            f(y,x,6) = omegabar*f(y,x,6) + omega_wd * rho(y) * (vel_trm_68 - velxmy)
-            f(y,x,8) = omegabar*f(y,x,8) + omega_wd * rho(y) * (vel_trm_68 + velxmy)
-         
-         end do
-
       end do
-      !$omp end do
+
+      !$omp do collapse(2)
+      do x = 1, nx
+         do y = 1, ny
+         
+            indp = one_third - 0.5_wp * (ux(y,x)**2 + uy(y,x)**2)
+            vel_trm_13 = indp + 1.5_wp * ux(y,x) * ux(y,x)
+
+            f(y,x,1) = omegabar*f(y,x,1) + omega_ws * rho(y,x) * (vel_trm_13 + ux(y,x))
+            f(y,x,3) = omegabar*f(y,x,3) + omega_ws * rho(y,x) * (vel_trm_13 - ux(y,x))
+         
+         end do
+      end do
+
+      !$omp do collapse(2)
+      do x = 1, nx
+         do y = 1, ny
+            
+
+            indp = one_third - 0.5_wp * (ux(y,x)**2 + uy(y,x)**2)
+            vel_trm_24 = indp + 1.5_wp * uy(y,x) * uy(y,x)
+
+            f(y,x,2) = omegabar*f(y,x,2) + omega_ws * rho(y,x) * (vel_trm_24 + uy(y,x))
+            f(y,x,4) = omegabar*f(y,x,4) + omega_ws * rho(y,x) * (vel_trm_24 - uy(y,x))
+         
+         end do
+      end do
+
+      !$omp do collapse(2)
+      do x = 1, nx
+         do y = 1, ny
+
+
+            indp = one_third - 0.5_wp * (ux(y,x)**2 + uy(y,x)**2)
+            velxpy = ux(y,x) + uy(y,x)
+            vel_trm_57 = indp + 1.5_wp * velxpy * velxpy
+
+            f(y,x,5) = omegabar*f(y,x,5) + omega_wd * rho(y,x) * (vel_trm_57 + velxpy)
+            f(y,x,7) = omegabar*f(y,x,7) + omega_wd * rho(y,x) * (vel_trm_57 - velxpy)
+         
+         end do
+      end do
+
+      !$omp do collapse(2)
+      do x = 1, nx
+         do y = 1, ny
+            
+            indp = one_third - 0.5_wp * (ux(y,x)**2 + uy(y,x)**2)
+            velxmy = ux(y,x) - uy(y,x)
+            vel_trm_68 = indp + 1.5_wp * velxmy * velxmy
+            
+            f(y,x,6) = omegabar*f(y,x,6) + omega_wd * rho(y,x) * (vel_trm_68 - velxmy)
+            f(y,x,8) = omegabar*f(y,x,8) + omega_wd * rho(y,x) * (vel_trm_68 + velxmy)
+         
+         end do
+      end do
 
       !$omp end parallel
 
