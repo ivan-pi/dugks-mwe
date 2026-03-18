@@ -8,13 +8,13 @@ project(fdlbm
 option(DUGKS "Enable the Discrete Unified Gas Kinetic Scheme" OFF)
 
 add_library(fdlbm
-    precision.F90
-    lattice.F90
-    periodic_lw.F90
-    periodic_lw_fem.f90
-    periodic_dugks.F90
-    taylor_green.f90
-    gnuplot_io.F90
+    src/precision.F90
+    src/lattice.F90
+    src/periodic_lw.F90
+    src/periodic_lw_fem.f90
+    src/periodic_dugks.F90
+    src/taylor_green.f90
+    src/gnuplot_io.F90
     )
 
 if(DUGKS)
@@ -22,5 +22,5 @@ if(DUGKS)
 endif()
 
 # Create the executable target
-add_executable(main_tgv main_taylor_green.F90)
+add_executable(main_tgv src/main_taylor_green.F90)
 target_link_libraries(main_tgv PRIVATE fdlbm)
