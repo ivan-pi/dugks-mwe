@@ -9,15 +9,17 @@ program main_taylor_green
       set_properties, &
       dealloc_grid, &
       perform_step, &
-      report_bw
+      report_bw, total_bw
 
    use taylor_green, only: taylor_green_t, pi
-!   use collision_bgk, only: collide_bgk
-!   use periodic_lbm, only: perform_lbm_step, lbm_stream
    use periodic_dugks, only: dugks_collide, dugks_stream, dugks_bc
-   use periodic_lw, only: lw_collide, lw_stream, lw_bc
+   use periodic_lw, only: lattice_grid_lw
 
-!$ use omp_lib
+#ifdef _OPENMP
+   use omp_lib
+   use batch_periodic_solver_mod, only: &
+      fftw_init_threads, fftw_plan_with_nthreads, fftw_cleanup_threads
+#endif
 
 ! amdflang: F90-S-0034-Syntax error
 !   implicit none (type,external)
@@ -31,7 +33,7 @@ program main_taylor_green
 
    type(taylor_green_t) :: tg
 
-   type(lattice_grid) :: grid
+   class(lattice_grid), allocatable :: grid
    real(wp) :: cfl, dt, nu, tau
    real(wp) :: kx, ky, umax, nrm
    real(wp), parameter :: cs = 1.0_wp/sqrt(3.0_wp)
@@ -45,7 +47,7 @@ program main_taylor_green
    integer :: cases(6), ic
 
    logical :: with_omp
-   integer :: maxthr
+   integer :: maxthr, istat
 
    write(*,'(A)') "=== TAYLOR-GREEN-VORTEX ==="
 
@@ -63,13 +65,24 @@ program main_taylor_green
       write(*,'("Distribution shifting: ", L1)') shift
    end block
 
+#ifdef _OPENMP
+   with_omp = .true.
+   maxthr = omp_get_max_threads()
+#else
    with_omp = .false.
    maxthr = 1
-!$ with_omp = .true.
-!$ maxthr = omp_get_max_threads()
+#endif
 
    write(*,'("OpenMP: ", L1)') with_omp
    write(*,'("Max. threads: ",I0)') maxthr
+
+#ifdef _OPENMP
+   istat = fftw_init_threads()
+   if (istat == 0) then
+       error stop "error: FFTW initialization failed."
+   end if
+   call fftw_plan_with_nthreads(maxthr)
+#endif
 
 !cases = [32,64,96,128,160,192]
 !do ic = 1, size(cases)
@@ -79,27 +92,25 @@ program main_taylor_green
    call read_env(nx, ny)
    print *, "nx, ny = ", nx, ny
 
-   call alloc_grid(grid, nx, ny)
-
-   grid%filename = "results"
-   call grid%set_output_folder(foldername="taylor_green")
 
 #ifdef DUGKS
+   call alloc_grid(grid, nx, ny)
    grid%collision => dugks_collide
    grid%streaming => dugks_stream
    grid%bc => dugks_bc
 #else
-   grid%collision => lw_collide
-   grid%streaming => lw_stream
-   grid%bc => lw_bc
+   allocate(lattice_grid_lw :: grid)
+   call grid%alloc(nx, ny)
 #endif
 
+   grid%filename = "results"
+   call grid%set_output_folder(foldername="taylor_green")
    grid%logger => my_logger
 
    ! umax = Mach * cs
    ! nu = (umax * L) / Re
 
-   select case("kraemer")
+   select case("default")
    case("guo")
       ! Guo (2013)
       ! WARNING: some parameters are uncertain in this case
@@ -125,17 +136,17 @@ program main_taylor_green
    ! read value for dt/tau or cfl
    call get_command_argument(1, arg)
 
-   read(arg,*) cfl
+!   read(arg,*) cfl
 !   cfl = 0.5_Wp
 !   dt = 0.00554256
 !   cfl = 0.1_wp
-   dt = cfl / sqrt(2.0_wp)
-   dt_over_tau = dt / tau
+!  dt = cfl / sqrt(2.0_wp)
+!   dt_over_tau = dt / tau
 
-!   read(arg,*) dt_over_tau
+   read(arg,*) dt_over_tau
 !   dt_over_tau = 4.0_wp / 3.0_wp
-!   dt = dt_over_tau*tau
-!   cfl = sqrt(2._wp)*dt
+   dt = dt_over_tau*tau
+   cfl = sqrt(2._wp)*dt
    
    print *, "Ma     = ", umax / cs
    print *, "Re     = ", umax * max(nx, ny) / nu
@@ -163,11 +174,11 @@ program main_taylor_green
    print *, "tc   = ", tg%td
    call write_gnuplot_include()
 
-   tmax = log(10._wp)*tg%decay_time()
+   tmax = log(2._wp)*tg%decay_time()
 !   tmax = 0.7895683520871487 * tg%decay_time() ! Wu et al. 2018, or 10^5 timesteps
    nsteps = ceiling(tmax / dt)
 
-   nsteps = 1000000
+   nsteps = 20000
 !   tmax = nsteps *dt
 
 !   tmax =
@@ -219,12 +230,7 @@ program main_taylor_green
    block
       real(wp) :: elapsed_per_step, stream_bw, collision_bw
       elapsed_per_step = (send - sbegin) / step
-
-      stream_bw = 2 * product(real([nx,ny,9,wp],wp))
-      collision_bw = 2 * product(real([nx,ny,9,wp],wp)) + product(real([nx,ny,3],wp))
-
-      print *, "Eff. BW (global) = ", (stream_bw + collision_bw) / elapsed_per_step / 1024.0_wp**3
-
+      print *, "Eff. BW (global) = ", total_bw(nx,ny,elapsed_per_step)
    end block
    call report_bw(grid)
 
@@ -238,9 +244,9 @@ program main_taylor_green
    print *, "Final u/umax = ", maxval(hypot(grid%ux,grid%uy)) / umax
 
    call dealloc_grid(grid)
-
 !end do
 
+!$   call fftw_cleanup_threads()
 
 contains
 
@@ -273,7 +279,7 @@ contains
 
    subroutine apply_initial_condition(case, grid)
       type(taylor_green_t), intent(in) :: case
-      type(lattice_grid), intent(inout) :: grid
+      class(lattice_grid), intent(inout) :: grid
 
       real(wp), parameter :: rho0 = 1.0_wp
 
@@ -316,7 +322,7 @@ contains
    function calc_L2_norm(case, grid, t) result(nrm)
       ! TODO: move this function to the taylor_green module
       type(taylor_green_t), intent(in) :: case
-      type(lattice_grid), intent(in) :: grid
+      class(lattice_grid), intent(in) :: grid
       real(wp), intent(in) :: t
       real(wp) :: nrm
 
@@ -344,35 +350,10 @@ contains
       !     return np.sqrt(np.sum((u-ua)**2 + (v-va)**2)/np.sum(ua**2 + va**2))
 
       above = sum((grid%ux - uxa)**2 + (grid%uy - uya)**2)
-      !below = sum(uxa**2 + uya**2)
-      !nrm = sqrt(above/below)
-      nrm = sqrt(above) / umax
+      below = sum(uxa**2 + uya**2)
+      nrm = sqrt(above/below)
+      !nrm = sqrt(above) / umax
 
    end function
-
-
-   real(wp) function nrm2(n,a)
-      integer, intent(in) :: n
-      real(wp), intent(in) :: a(n)
-
-      integer :: tid, nthr, chunk, lo, hi
-
-      tid = 0
-      nthr = 1
-
-      nrm = 0.0_wp
-
-      !$omp parallel default(private) shared(n,a) reduction(+:nrm)
-      !$ tid = omp_get_thread_num()
-      !$ nthr = omp_get_num_threads()
-      chunk = (n + nthr - 1)/nthr
-      lo = tid*chunk + 1
-      hi = min((tid+1)*chunk,n)
-      nrm = dot_product(a(lo:hi),a(lo:hi))
-      !$omp end parallel
-
-      nrm = sqrt(nrm)
-   end function
-
 
 end program

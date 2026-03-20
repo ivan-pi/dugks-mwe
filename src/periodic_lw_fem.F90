@@ -5,6 +5,7 @@ private
 
 public :: lw2_fem_weights
 public :: stream_lw2_fem
+public :: stream_lw2_fem_rhs
 
 integer :: nhalo = 1
 
@@ -105,22 +106,27 @@ subroutine stream_lw2_fem(nx,ny,fsrc,fdst,w)
    real(wp), intent(inout) :: fdst(1-nhalo:ny+nhalo,1-nhalo:nx+nhalo,0:8)
 
    integer :: i, j, k
+   real(wp) :: delta, tmp(-1:1,-1:1)
 
    ! Rest particles
    fdst(1:ny,1:nx,0) = fsrc(1:ny,1:nx,0)
 
    ! We implicitly assume that h = 1
 
-   !$omp parallel default(private) shared(nx,ny,fsrc,fdst) firstprivate(w)
+   !$omp parallel if(nx*ny > 100**2) default(private) shared(nx,ny,fsrc,fdst) firstprivate(w)
 
-   !$omp do collapse(2)
+#ifdef __flang__
+   !$omp do collapse(2) schedule(static)
    do k = 1, 8
-      !$omp tile sizes(1,128)
       do j = 1, nx
       do i = 1, ny
-         block
-            real(wp) :: delta, tmp(-1:1,-1:1)
-
+#else
+   !$omp do collapse(2) schedule(static)
+   do k = 1, 8
+      !$omp tile sizes(1,256)
+      do j = 1, nx
+      do i = 1, ny
+#endif
             tmp = w(-1:1,-1:1,k)*fsrc(i-1:i+1,j-1:j+1,k)
 !            delta = sum(w(-1:1,-1:1,k)*fsrc(i-1:i+1,j-1:j+1,k))
 
@@ -129,7 +135,52 @@ subroutine stream_lw2_fem(nx,ny,fsrc,fdst,w)
             delta = delta + tmp(0,0)
 
             fdst(i,j,k) = fsrc(i,j,k) + delta
-         end block
+      end do
+      end do
+   end do
+
+   !$omp end parallel
+
+end subroutine
+
+
+
+subroutine stream_lw2_fem_rhs(nx,ny,fsrc,fdst,w)
+   integer, intent(in), value :: nx, ny
+   real(wp), intent(in) :: fsrc(1-nhalo:ny+nhalo,1-nhalo:nx+nhalo,0:8)
+   real(wp), intent(in) :: w(-1:1,-1:1,1:8)
+   real(wp), intent(inout) :: fdst(1-nhalo:ny+nhalo,1-nhalo:nx+nhalo,0:8)
+
+   integer :: i, j, k
+   real(wp) :: delta, tmp(-1:1,-1:1)
+
+   ! Rest particles
+   fdst(1:ny,1:nx,0) = 0.0_wp
+
+   ! We implicitly assume that h = 1
+
+   !$omp parallel if(nx*ny > 100**2) default(private) shared(nx,ny,fsrc,fdst) firstprivate(w)
+
+#ifdef __flang__
+   !$omp do collapse(2) schedule(static)
+   do k = 1, 8
+      do j = 1, nx
+      do i = 1, ny
+#else
+   !$omp do collapse(2) schedule(static)
+   do k = 1, 8
+      !$omp tile sizes(1,256)
+      do j = 1, nx
+      do i = 1, ny
+#endif
+            tmp = w(-1:1,-1:1,k)*fsrc(i-1:i+1,j-1:j+1,k)
+!            delta = sum(w(-1:1,-1:1,k)*fsrc(i-1:i+1,j-1:j+1,k))
+
+            delta = (tmp(1,1) + tmp(-1,-1)) + (tmp(-1,1) + tmp(1,-1))
+            delta = delta + ((tmp(1,0) + tmp(-1,0)) + (tmp(0,1) + tmp(0,-1)))
+            delta = delta + tmp(0,0)
+
+            fdst(i,j,k) = delta
       end do
       end do
    end do

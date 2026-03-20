@@ -14,16 +14,22 @@
 module periodic_lw
 
    use precision, only: wp
-   use lattice, only: lattice_grid, &
+
+   ! The abstract parent class
+   use lattice, only: lattice_grid, alloc_grid, &
       cx, cy, csqr, w0, ws, wd, w, rho0, shift
 
+   ! Lax-Wendroff using FEM stencils
+   use periodic_lw_fem, only: lw2_fem_weights, &
+      stream_lw2_fem, stream_lw2_fem_rhs
+
+   ! Mass solver requires FFTW
+   use batch_periodic_solver_mod, only: BatchMassSolver
 
    implicit none
    private
 
-   public :: lw_stream
-   public :: lw_collide
-   public :: lw_bc
+   public :: lattice_grid_lw
 
    integer, parameter :: nhalo = 1
 
@@ -37,63 +43,133 @@ module periodic_lw
       end subroutine
    end interface
 
+   ! Lax-Wendroff based discretization
+   type, extends(lattice_grid) :: lattice_grid_lw
+      private
+
+      ! Kernel for the FDM or FVM variant
+      procedure(lw_stream_kernel), pointer, nopass :: kernel => lw_stream_kernel_fdm_v2
+
+      ! Fields used by the FEM variant
+      integer :: imeth = 0    ! 0 (FEM), 1 (FDM; testing only)
+      real(wp), allocatable :: wfem(:,:,:)  ! Weights
+      type(BatchMassSolver) :: mm           ! Mass matrix
+      real(wp), allocatable :: ftmp(:,:,:)  ! Workspace
+
+   contains
+      procedure, pass(grid) :: alloc => alloc_grid_lw
+      procedure, pass(grid) :: collision => lw_collide
+      procedure, pass(grid) :: streaming => lw_stream
+      procedure, pass(grid) :: bc => lw_bc
+   end type
+
+   ! Limit for OpenMP multi-threading
    integer, parameter :: nlimit = 100**2
+
+   ! Module level flags to switch between FDM and FEM variants
+   logical, parameter :: use_fem = .false.
+   logical, parameter :: use_fem_mm = .false.
 
 contains
 
-   subroutine lw_collide(grid)
-      class(lattice_grid), intent(inout) :: grid
+   !
+   ! Overriden methods
+   !
 
-#if 0
-      call lw_collision_kernel(grid%nx,grid%ny,&
-         grid%f(:,:,:,grid%iold), &
-         grid%omega)
-#else
-      ! (nx,ny,f,rho,ux,uy,omega,indp)
-      call d2q9_collision(grid%nx, grid%ny, &
-         grid%f(:,:,:,grid%iold), &
-         grid%rho, grid%ux, grid%uy, grid%omega, &
-         grid%wrk)
-#endif
+   subroutine alloc_grid_lw(grid,nx,ny,nf,log)
+      class(lattice_grid_lw), intent(out) :: grid
+      integer, intent(in) :: nx, ny
+      integer, intent(in), optional :: nf
+      logical, intent(in), optional :: log
+
+      integer, parameter :: IMETH = 0
+
+      ! Call parent initializer
+      !call grid%lattice_grid%alloc_grid(nx,ny,nf,log)
+
+! How do we call the parent initializer? A solution is given at,
+! https://fortran-lang.discourse.group/t/inheritance-problem-or-selectively-accessing-procedures-of-parent-class/7352
+
+      call alloc_grid(grid,nx,ny,nf,log)
+
+      ! FEM-based streaming
+      if (use_fem) then
+         grid%wfem = lw2_fem_weights(grid%dt,grid%imeth)
+         if (use_fem_mm .and. grid%imeth == 0) then
+            ! Use mass matrix instead of lumping
+            call grid%mm%init(ny,nx,k_batch=9,nhalo=1)
+            allocate(grid%ftmp(1-nhalo:ny+nhalo,1-nhalo:nx+nhalo,0:8))
+         end if
+      end if
+
+   end subroutine
+
+   subroutine lw_collide(grid)
+      class(lattice_grid_lw), intent(inout) :: grid
+
+      logical, parameter :: new_collision = .true.
+
+      if (new_collision) then
+         ! (nx,ny,f,rho,ux,uy,omega,indp)
+         call d2q9_collision(grid%nx, grid%ny, &
+            grid%f(:,:,:,grid%iold), &
+            grid%rho, grid%ux, grid%uy, grid%omega, &
+            grid%wrk)
+      else
+         call lw_collision_kernel(grid%nx,grid%ny,&
+            grid%f(:,:,:,grid%iold), &
+            grid%omega)
+      end if
 
    end subroutine
 
    subroutine lw_stream(grid)
-      use periodic_lw_fem, only: lw2_fem_weights, stream_lw2_fem
-      class(lattice_grid), intent(inout) :: grid
+      class(lattice_grid_lw), intent(inout) :: grid
 
-#if 1
-      procedure(lw_stream_kernel), pointer :: kernel => null()
-      if (.not. associated(kernel)) then
-         ! TODO: allow runtime selection
-         kernel => lw_stream_kernel_fdm_v2
+      if (use_fem) then
+         if (use_fem_mm .and. grid%imeth == 0) then
+
+            ! FEM with mass matrix
+            call stream_lw2_fem_rhs(grid%nx,grid%ny,&
+               fsrc=grid%f(:,:,:,grid%iold), &
+               fdst=grid%f(:,:,:,grid%inew), &
+               w=grid%wfem)
+
+            ! Apply mass matrix, u = M^-1 * f
+            call grid%mm%solve(u=grid%ftmp,f=grid%f(:,:,:,grid%inew))
+
+            ! fnew = fold + M^(-1) f_rhs
+            grid%f(:,:,:,grid%inew) = grid%f(:,:,:,grid%iold) + grid%ftmp
+
+         else
+
+            ! FEM with lumping of mass matrix
+            call stream_lw2_fem(grid%nx,grid%ny,&
+               fsrc=grid%f(:,:,:,grid%iold), &
+               fdst=grid%f(:,:,:,grid%inew), &
+               w=grid%wfem)
+
+         end if
+      else
+
+         ! Lax-Wendroff based FDM streaming
+         call grid%kernel(grid%nx,grid%ny,&
+            grid%f(:,:,:,grid%iold), &
+            grid%f(:,:,:,grid%inew), &
+            grid%dt)
+
       end if
-
-      call kernel(grid%nx,grid%ny,&
-         grid%f(:,:,:,grid%iold), &
-         grid%f(:,:,:,grid%inew), &
-         grid%dt)
-#else
-      real(wp), allocatable :: wfem(:,:,:)
-      if (.not. allocated(wfem)) then
-         wfem = lw2_fem_weights(grid%dt, IMETH = 0)
-      end if
-
-      call stream_lw2_fem(grid%nx,grid%ny,&
-         grid%f(:,:,:,grid%iold), &
-         grid%f(:,:,:,grid%inew), &
-         wfem)
-#endif
 
    end subroutine
-
 
    subroutine lw_bc(grid)
-      class(lattice_grid), intent(inout) :: grid
-
+      class(lattice_grid_lw), intent(inout) :: grid
       call lw_pbc_kernel(grid%nx,grid%ny,grid%f(:,:,:,grid%iold))
-
    end subroutine
+
+   !
+   ! Kernels (private)
+   !
 
    subroutine lw_collision_kernel(nx,ny,pdf,omega)
       implicit none
@@ -266,6 +342,9 @@ contains
       real(wp), parameter, dimension(0:8) :: vxx = cx**2, vyy = cy**2
       real(wp), parameter, dimension(0:8) :: vxy = 2*cx*cy
 
+      real(wp) :: dfx, dfy, dfxx, dfxy, dfyy
+      real(wp) :: first, second, delta
+
       !
       ! Streaming
       !
@@ -273,13 +352,11 @@ contains
 
       !$omp parallel do collapse(NCOLLAPSE) schedule(static)
       do k = 1, 8
+#ifndef __flang__
          !$omp tile sizes(TILE_1,TILE_2)
+#endif
          do j = 1, nx
             do i = 1, ny
-
-            block
-               real(wp) :: dfx, dfy, dfxx, dfxy, dfyy
-               real(wp) :: first, second, delta
 
                dfy = 0.5_wp*(fsrc(i+1,j,k) - fsrc(i-1,j,k))
                dfx = 0.5_wp*(fsrc(i,j+1,k) - fsrc(i,j-1,k))
@@ -294,7 +371,6 @@ contains
                delta = first + second
 
                fdst(i,j,k) = fsrc(i,j,k) + delta
-            end block
 
             end do
          end do
@@ -312,6 +388,8 @@ contains
       integer :: i, j, k
 
       real(wp), dimension(0:8) :: vx, vy, vxx, vxy, vyy
+      real(wp) :: dE, dW, dN, dS, dNE, dNW
+
 
       vx = -dt*cx
       vy = -dt*cy
@@ -334,12 +412,11 @@ contains
 
       !$omp do collapse(NCOLLAPSE) schedule(static)
       do k = 1, 8
+#ifndef __flang__
          !$omp tile sizes(TILE_1,TILE_2)
+#endif
          do j = 1, nx
             do i = 1, ny
-
-            block
-               real(wp) :: dE, dW, dN, dS, dNE, dNW
 
                dE = fsrc(i,j+1,k) - fsrc(i,j,k)
                dW = fsrc(i,j,k) - fsrc(i,j-1,k)
@@ -352,7 +429,6 @@ contains
 
                fdst(i,j,k) = fsrc(i,j,k) + vx(k) *(dE + dW) + vy(k) * (dN + dS) + &
                      + (vxx(k) * (dE - dW) + vyy(k) * (dN - dS) + vxy(k) * (dNE - dNW))
-            end block
 
             end do
          end do
@@ -434,7 +510,9 @@ contains
       !$omp do schedule(static)
       xloop: do j = 1, nx
 
+#ifndef __flang__
       !$omp simd private(drho, t0,t1,t2,t3,t4,t5,t6,t7,t8)
+#endif
       do i = 1, ny
 
          ! pull pdfs travelling in different directions
@@ -478,7 +556,9 @@ contains
 
       end do
 
+#ifndef __flang__
       !$omp simd private(vel_trm_13,vel_trm_24)
+#endif
       do i = 1, ny
          vel_trm_13 = indp(i,j) + th * ux(i,j) * ux(i,j)
 
@@ -491,7 +571,9 @@ contains
          f(i,j,4) = omegabar*f(i,j,4) + omega_ws * rho(i,j) * (vel_trm_24 - uy(i,j))
       end do
 
+#ifndef __flang__
       !$omp simd private(velxpy,vel_trm_57,velxmy,vel_trm_68)
+#endif
       do i = 1, ny
          velxpy = ux(i,j) + uy(i,j)
          vel_trm_57 = indp(i,j) + th * velxpy * velxpy

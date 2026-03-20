@@ -14,6 +14,7 @@ module lattice
 
    public :: set_properties
    public :: report_bw
+   public :: total_bw
 
    public :: update_macros
    
@@ -25,8 +26,7 @@ module lattice
 
    character(*), parameter :: FMT_REAL_SP = '(es15.8e2)'
 
-   type :: lattice_grid
-
+   type, abstract :: lattice_grid
       integer :: nx, ny
 
       real(wp), allocatable :: f(:,:,:,:)
@@ -41,9 +41,6 @@ module lattice
       
       integer :: iold, inew, imid
       
-      procedure(collision_interface), pointer, pass(grid) :: collision => null()
-      procedure(streaming_interface), pointer, pass(grid) :: streaming => null()
-      procedure(bc_interface),        pointer, pass(grid) :: bc => null()
 
       character(len=:), allocatable :: filename, foldername
 
@@ -54,7 +51,11 @@ module lattice
       real(dp) :: ts = 0, tc = 0, tb = 0
       integer :: total_steps = 0
    contains
+      procedure(collision_interface), pass(grid), deferred :: collision
+      procedure(streaming_interface), pass(grid), deferred :: streaming
+      procedure(bc_interface),        pass(grid), deferred :: bc
       procedure :: set_output_folder
+      procedure :: alloc => alloc_grid
    end type
 
    abstract interface
@@ -100,7 +101,7 @@ module lattice
 contains
 
    subroutine alloc_grid(grid,nx,ny,nf,log)
-      type(lattice_grid), intent(out) :: grid
+      class(lattice_grid), intent(out) :: grid
       
       integer, intent(in) :: nx, ny
       integer, intent(in), optional :: nf
@@ -169,7 +170,7 @@ contains
    end subroutine
 
    subroutine dealloc_grid(grid)
-      type(lattice_grid), intent(inout) :: grid
+      class(lattice_grid), intent(inout) :: grid
       
       logical :: isopen
 
@@ -190,7 +191,7 @@ contains
       
       !> Deallocate all allocatable objects by applying intent(out)
       subroutine deallocate_all_(grid)
-         type(lattice_grid), intent(out) :: grid
+         class(lattice_grid), intent(out) :: grid
          ! Use an associate to prevent spurious warnings
          associate(nx => grid%nx)
             return
@@ -200,7 +201,7 @@ contains
    end subroutine
 
    subroutine set_properties(grid, nu, dt, magic)
-      type(lattice_grid), intent(inout) :: grid
+      class(lattice_grid), intent(inout) :: grid
       real(wp), intent(in) :: nu, dt
       real(wp), optional :: magic
 
@@ -230,7 +231,7 @@ contains
 
 
    subroutine set_pdf_to_equilibrium(grid)
-      type(lattice_grid), intent(inout) :: grid
+      class(lattice_grid), intent(inout) :: grid
 
       real(wp) :: rho_, ux_, uy_
       integer :: x, y
@@ -289,7 +290,7 @@ contains
 
 #if 1
    subroutine perform_step(grid)
-      type(lattice_grid), intent(inout) :: grid
+      class(lattice_grid), intent(inout) :: grid
 
       real(dp) :: t(4)
 
@@ -316,7 +317,7 @@ contains
    end subroutine
 #else
    subroutine perform_step(grid)
-      type(lattice_grid), intent(inout) :: grid
+      class(lattice_grid), intent(inout) :: grid
 
       call grid%streaming()  ! write from iold to inew
       call grid%collision()  ! update inew in place
@@ -332,7 +333,7 @@ contains
 #endif
 
    subroutine update_macros(grid)
-      type(lattice_grid), intent(inout) :: grid
+      class(lattice_grid), intent(inout) :: grid
 
       call update_macros_kernel(grid%nx, grid%ny, &
          grid%f(:,:,:,grid%iold), &
@@ -377,7 +378,7 @@ contains
 
 
    subroutine output_gnuplot(grid, step)
-      type(lattice_grid), intent(in) :: grid
+      class(lattice_grid), intent(in) :: grid
       integer, intent(in), optional :: step
 
       character(len=64) :: istr
@@ -438,8 +439,24 @@ contains
    end subroutine
 
 
+! TODO: generalize bandwidth computations for DUGKS scheme
+
+   real(wp) function total_bw(nx,ny,elapsed_per_step) ! in GB/s
+      integer, intent(in) :: nx, ny
+      real(wp), intent(in) :: elapsed_per_step
+
+      real(wp) :: stream_bw, collision_bw, macro_bw
+
+      stream_bw = 2 * product(real([nx,ny,9,wp],wp))
+      collision_bw = 2 * product(real([nx,ny,9,wp],wp))
+      macro_bw = product(real([nx,ny,3],wp))
+
+      total_bw = stream_bw + collision_bw + macro_bw
+
+   end function
+
    subroutine report_bw(grid)
-      type(lattice_grid), intent(in) :: grid
+      class(lattice_grid), intent(in) :: grid
 
       real(wp) :: stream_bw, collision_bw
       integer :: sz
