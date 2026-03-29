@@ -109,18 +109,35 @@ subroutine stream_lw2_fem(nx,ny,fsrc,fdst,w)
    real(wp) :: delta, tmp(-1:1,-1:1)
 
    ! Rest particles
-   fdst(1:ny,1:nx,0) = fsrc(1:ny,1:nx,0)
 
    ! We implicitly assume that h = 1
 
    !$omp parallel if(nx*ny > 100**2) default(private) &
    !$omp     shared(nx,ny,fsrc,fdst) firstprivate(w)
 
-   !$omp do collapse(2) schedule(static)
+   !$omp do nowait
+   do j = 1, nx
+      do i = 1, ny
+         fdst(i,j,0) = fsrc(i,j,0)
+      end do
+   end do
+
+   !$omp do collapse(3)
+   !$omp tile sizes(1,1,256)
    do k = 1, 8
       do j = 1, nx
       do i = 1, ny
-            fdst(i,j,k) = fsrc(i,j,k) + sum(w(:,:,k)*fsrc(i-1:i+1,j-1:j+1,k))
+!         fdst(i,j,k) = fsrc(i,j,k) + sum(w(:,:,k)*fsrc(i-1:i+1,j-1:j+1,k))
+         fdst(i,j,k) = &
+            (1.0_wp + w(0,0,k))*fsrc(i,j,k) + &
+            w( 1, 0,k)*fsrc(i+1,j  ,k) + &
+            w( 0, 1,k)*fsrc(i  ,j+1,k) + &
+            w(-1, 0,k)*fsrc(i-1,j  ,k) + &
+            w( 0,-1,k)*fsrc(i  ,j-1,k) + &
+            w( 1, 1,k)*fsrc(i+1,j+1,k) + &
+            w(-1, 1,k)*fsrc(i-1,j+1,k) + &
+            w(-1,-1,k)*fsrc(i-1,j-1,k) + &
+            w( 1,-1,k)*fsrc(i+1,j-1,k)
       end do
       end do
    end do

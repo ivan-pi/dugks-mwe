@@ -445,7 +445,8 @@ contains
       collision_bw = 2 * product(real([nx,ny,9,wp],wp))
       macro_bw = product(real([nx,ny,3],wp))
 
-      total_bw = stream_bw + collision_bw + macro_bw
+      total_bw = (stream_bw + collision_bw + macro_bw) / &
+         elapsed_per_step / 1024.0_wp**3
 
    end function
 
@@ -462,8 +463,17 @@ contains
       collision_bw = 2 * product(real([grid%nx,grid%ny,9,sz],wp))
       collision_bw = collision_bw + product(real([grid%nx,grid%ny,4,sz],wp))
 
-      print *, "Eff. BW (streaming) = ", stream_bw / (grid%ts/grid%total_steps) / 1024.0_wp**3
-      print *, "Eff. BW (collision) = ", collision_bw / (grid%tc/grid%total_steps) / 1024.0_wp**3
+      write(*,'("Perfomance metrics:")')
+      write(*,'("  Eff. BW (streaming) = ",G0.4," GB/s")') &
+         stream_bw / (grid%ts/grid%total_steps) / 1024.0_wp**3
+      write(*,'("  Eff. BW (collision) = ",G0.4," GB/s")') &
+         collision_bw / (grid%tc/grid%total_steps) / 1024.0_wp**3
+
+      associate(tt => grid%ts + grid%tc + grid%tb)
+      write(*,'("  Streaming Time = ",G0.3," s (",F4.1," %)")') grid%ts, 100*grid%ts/tt
+      write(*,'("  Collision Time = ",G0.3," s (",F4.1," %)")') grid%tc, 100*grid%tc/tt
+      write(*,'("  Boundary Time  = ",G0.3," s (",F4.1," %)")') grid%tb, 100*grid%tb/tt
+      end associate
 
    end subroutine
 

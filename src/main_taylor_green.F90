@@ -173,9 +173,9 @@ program main_taylor_green
 
    tmax = log(2._wp)*tg%decay_time()
 !   tmax = 0.7895683520871487 * tg%decay_time() ! Wu et al. 2018, or 10^5 timesteps
-   nsteps = ceiling(tmax / dt)
+!   nsteps = ceiling(tmax / dt)
 
-!   nsteps = 20000
+   nsteps = 20000
 !   tmax = nsteps *dt
 
 !   tmax =
@@ -222,15 +222,15 @@ program main_taylor_green
 
    send = walltime()
 
-   print *, "MLUPS ", (real(nx,wp) * real(ny,wp) * real(step,wp) * 1.e-6_wp) / (send - sbegin)
-
-   block
-      real(wp) :: elapsed_per_step, stream_bw, collision_bw
+   report: block
+      real(wp) :: elapsed_per_step, mlups
       elapsed_per_step = (send - sbegin) / step
-      print *, "Eff. BW (global) = ", total_bw(nx,ny,elapsed_per_step)
-   end block
-   call report_bw(grid)
-
+      mlups = product(real([nx,ny],wp)) / 1.0e6_wp / elapsed_per_step
+      write(*,'("Throughput          = ",G0.5," MLUPS")') mlups
+      write(*,'("Throughput per core = ",G0.5," MLUPS")') mlups/maxthr
+      write(*,'("Eff. BW (global)    = ",G0.5," GB/s")') total_bw(nx,ny,elapsed_per_step)
+      call report_bw(grid)
+   end block report
 
    ! calculate average L2-norm
    call update_macros(grid)
