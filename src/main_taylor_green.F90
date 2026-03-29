@@ -92,21 +92,6 @@ program main_taylor_green
    call read_env(nx, ny)
    print *, "nx, ny = ", nx, ny
 
-
-#ifdef DUGKS
-   call alloc_grid(grid, nx, ny)
-   grid%collision => dugks_collide
-   grid%streaming => dugks_stream
-   grid%bc => dugks_bc
-#else
-   allocate(lattice_grid_lw :: grid)
-   call grid%alloc(nx, ny)
-#endif
-
-   grid%filename = "results"
-   call grid%set_output_folder(foldername="taylor_green")
-   grid%logger => my_logger
-
    ! umax = Mach * cs
    ! nu = (umax * L) / Re
 
@@ -160,7 +145,19 @@ program main_taylor_green
       stop 1
    end if
 
-   call set_properties(grid, nu, dt, magic=1._wp/4._wp)
+#ifdef DUGKS
+   call alloc_grid(grid, nx, ny, nu, dt)
+   grid%collision => dugks_collide
+   grid%streaming => dugks_stream
+   grid%bc => dugks_bc
+#else
+   allocate(lattice_grid_lw :: grid)
+   call grid%alloc(nx, ny, nu, dt)
+#endif
+
+   grid%filename = "results"
+   call grid%set_output_folder(foldername="taylor_green")
+   grid%logger => my_logger
 
    print *, "omega = ", grid%omega
 
@@ -178,7 +175,7 @@ program main_taylor_green
 !   tmax = 0.7895683520871487 * tg%decay_time() ! Wu et al. 2018, or 10^5 timesteps
    nsteps = ceiling(tmax / dt)
 
-   nsteps = 20000
+!   nsteps = 20000
 !   tmax = nsteps *dt
 
 !   tmax =
@@ -338,9 +335,9 @@ contains
                    ux=uxa, &
                    uy=uya)
 
-!      above = norm2(hypot(grid%ux - uxa, grid%uy - uya))
-!      below = norm2(hypot(uxa, uya))
-!      nrm = above/below
+      above = norm2(hypot(grid%ux - uxa, grid%uy - uya))
+      below = norm2(hypot(uxa, uya))
+      nrm = above/below
 
       ! For Kraemer test
 !      nrm = above / umax
@@ -349,9 +346,9 @@ contains
       ! def L2_error(u,v,ua,va):
       !     return np.sqrt(np.sum((u-ua)**2 + (v-va)**2)/np.sum(ua**2 + va**2))
 
-      above = sum((grid%ux - uxa)**2 + (grid%uy - uya)**2)
-      below = sum(uxa**2 + uya**2)
-      nrm = sqrt(above/below)
+!      above = sum((grid%ux - uxa)**2 + (grid%uy - uya)**2)
+!      below = sum(uxa**2 + uya**2)
+!      nrm = sqrt(above/below)
       !nrm = sqrt(above) / umax
 
    end function

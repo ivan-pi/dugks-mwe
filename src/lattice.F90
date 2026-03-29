@@ -100,27 +100,23 @@ module lattice
    integer, parameter :: nhalo = 1
 contains
 
-   subroutine alloc_grid(grid,nx,ny,nf,log)
+   subroutine alloc_grid(grid,nx,ny,nu,dt,log)
       class(lattice_grid), intent(out) :: grid
       
       integer, intent(in) :: nx, ny
-      integer, intent(in), optional :: nf
+      real(wp), intent(in) :: nu, dt
       logical, intent(in), optional :: log
 
-      integer :: nf_
+      integer, parameter :: nf = 2
       logical :: log_
       character(len=:), allocatable :: logfile_
 
       grid%nx = nx
       grid%ny = ny
 
-      ! Number of pdf fields
-      nf_ = 2
-      if (present(nf)) nf_ = nf
-
       ! PDF memory
 #ifdef DUGKS
-      allocate(grid%f(ny,nx,0:8,nf_))
+      allocate(grid%f(ny,nx,0:8,nf))
 #else
       allocate(grid%f(1-nhalo:ny+nhalo,1-nhalo:nx+nhalo,0:8,2))
 #endif
@@ -141,31 +137,29 @@ contains
          write(*,'(A,G0)') "Mem. pdf (MB)    = ", pdf_mem / 1024.0_wp**2
       end block
 
-
       !
       ! Initialize field pointers
       !
       grid%inew = 1
       grid%iold = 2
-      if (nf_ > 2) then
-         grid%imid = 3
-      else
-         grid%imid = -1
-      end if
 
       !
       ! Initialize logging file
       !
-      log_ = .true.
-      if (present(log)) log_ = log
-
-      if (log_) then
-         logfile_ = "lattice_grid_log.txt"
-         if (allocated(grid%logfile)) then
-            logfile_ = grid%logfile
+      if (present(log)) then
+         if (log) then
+            logfile_ = "lattice_grid_log.txt"
+            if (allocated(grid%logfile)) then
+               logfile_ = grid%logfile
+            end if
+            open(newunit=grid%logunit,file=logfile_,status='unknown')
          end if
-         open(newunit=grid%logunit,file=logfile_,status='unknown')
       end if
+
+      !
+      ! Initialize fluid settings
+      !
+      call set_properties(grid,nu,dt,magic=0.25_wp)
 
    end subroutine
 

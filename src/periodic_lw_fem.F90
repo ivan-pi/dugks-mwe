@@ -113,28 +113,14 @@ subroutine stream_lw2_fem(nx,ny,fsrc,fdst,w)
 
    ! We implicitly assume that h = 1
 
-   !$omp parallel if(nx*ny > 100**2) default(private) shared(nx,ny,fsrc,fdst) firstprivate(w)
+   !$omp parallel if(nx*ny > 100**2) default(private) &
+   !$omp     shared(nx,ny,fsrc,fdst) firstprivate(w)
 
-#ifdef __flang__
    !$omp do collapse(2) schedule(static)
    do k = 1, 8
       do j = 1, nx
       do i = 1, ny
-#else
-   !$omp do collapse(2) schedule(static)
-   do k = 1, 8
-      !$omp tile sizes(1,256)
-      do j = 1, nx
-      do i = 1, ny
-#endif
-            tmp = w(-1:1,-1:1,k)*fsrc(i-1:i+1,j-1:j+1,k)
-!            delta = sum(w(-1:1,-1:1,k)*fsrc(i-1:i+1,j-1:j+1,k))
-
-            delta = (tmp(1,1) + tmp(-1,-1)) + (tmp(-1,1) + tmp(1,-1))
-            delta = delta + ((tmp(1,0) + tmp(-1,0)) + (tmp(0,1) + tmp(0,-1)))
-            delta = delta + tmp(0,0)
-
-            fdst(i,j,k) = fsrc(i,j,k) + delta
+            fdst(i,j,k) = fsrc(i,j,k) + sum(w(:,:,k)*fsrc(i-1:i+1,j-1:j+1,k))
       end do
       end do
    end do

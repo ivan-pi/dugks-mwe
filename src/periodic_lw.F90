@@ -67,7 +67,7 @@ module periodic_lw
    integer, parameter :: nlimit = 100**2
 
    ! Module level flags to switch between FDM and FEM variants
-   logical, parameter :: use_fem = .false.
+   logical, parameter :: use_fem = .true.
    logical, parameter :: use_fem_mm = .false.
 
 contains
@@ -76,10 +76,10 @@ contains
    ! Overriden methods
    !
 
-   subroutine alloc_grid_lw(grid,nx,ny,nf,log)
+   subroutine alloc_grid_lw(grid,nx,ny,nu,dt,log)
       class(lattice_grid_lw), intent(out) :: grid
       integer, intent(in) :: nx, ny
-      integer, intent(in), optional :: nf
+      real(wp), intent(in) :: nu, dt
       logical, intent(in), optional :: log
 
       integer, parameter :: IMETH = 0
@@ -90,12 +90,21 @@ contains
 ! How do we call the parent initializer? A solution is given at,
 ! https://fortran-lang.discourse.group/t/inheritance-problem-or-selectively-accessing-procedures-of-parent-class/7352
 
-      call alloc_grid(grid,nx,ny,nf,log)
+      print *, "Calling parent allocator"
+      call alloc_grid(grid,nx,ny,nu,dt,log)
+
+      print *, "Doing internal allocation"
 
       ! FEM-based streaming
       if (use_fem) then
-         grid%wfem = lw2_fem_weights(grid%dt,grid%imeth)
-         if (use_fem_mm .and. grid%imeth == 0) then
+         print *, "Using FEM-based streaming stencils"
+
+         allocate(grid%wfem(-1:1,-1:1,1:8))
+         grid%wfem(:,:,:) = lw2_fem_weights(grid%dt,grid%imeth)
+
+
+         if (use_fem_mm .and. (grid%imeth == 0)) then
+            print *, "Using FEM mass matrix"
             ! Use mass matrix instead of lumping
             call grid%mm%init(ny,nx,k_batch=9,nhalo=1)
             allocate(grid%ftmp(1-nhalo:ny+nhalo,1-nhalo:nx+nhalo,0:8))
@@ -142,12 +151,11 @@ contains
             grid%f(:,:,:,grid%inew) = grid%f(:,:,:,grid%iold) + grid%ftmp
 
          else
-
             ! FEM with lumping of mass matrix
             call stream_lw2_fem(grid%nx,grid%ny,&
-               fsrc=grid%f(:,:,:,grid%iold), &
-               fdst=grid%f(:,:,:,grid%inew), &
-               w=grid%wfem)
+               grid%f(:,:,:,grid%iold), &
+               grid%f(:,:,:,grid%inew), &
+               grid%wfem)
 
          end if
       else
