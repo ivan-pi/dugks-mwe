@@ -13,4 +13,5 @@ plot "tgv_wu2018.txt" i 0 u 1:2 w lp t "T2S2 (Wu et al., 2018)",\
      130*(1/x)**3 dt 4 lw 2 t "O(dx^3)", \
      "tgv_wu2018.txt" i 3 u 1:2 w lp t "Bardow-FEM (present)",\
      "tgv_wu2018.txt" i 4 u 1:2 w lp t "Bardow-FDM (present)",\
-     "tgv_wu2018.txt" i 5 u 1:2 w lp t "DUGKS (present)"
+     "tgv_wu2018.txt" i 5 u 1:2 w lp t "DUGKS (present)",\
+     "tgv_wu2018.txt" i 7 u 1:2 w lp t "FDM-isotropic (present)"

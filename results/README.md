@@ -69,6 +69,50 @@ With higher-order velocity lattices, there may be other challenges too.
 
 ## FIG4
 
+Here we scrutinize the case picked in S&M (2024).
+
+The settings are:
+- Re = 1
+- Mach = sqrt(3) * 0.01 (on the coarsest mesh)
+- CFL (unclear)
+
+In the original paper, CFL is varied with grid spacing, which
+is a bit weird. I assume they wanted to keep the CFL fixed, as in
+regular LBM where it is implicitly fixed to 1.
+
+The high viscosity, means that the fluid dissipates very quickly, so
+the number of time-steps needed is low.
+
+On the other hand, the choice of parameters is such that dt / tau < 1,
+meaning that the implicit collision technique is not really necessary here.
+The whole benefit of the implicit collision, is being able to push
+into high dt/tau regimes, which give good bandwidth.
+
+## FIG5
+
+The goal here was to repeat the study of Krämer et al. (2020), using the
+Natrium library.
+
+In Fig. 4 (page 44) of their article they show convergence of the
+time-averaged errors in a simulation of a two-dimensional TGV.
+
+The settings are
+- Re = 10^6
+- Ma = 10^(-4)
+
+The time-step size is arbitrarily fixed at 10^(-7) and the simulation proceeds
+for 100000 steps, that is until tmax = 0.01.
+
+The time error was measured every tenth time step.
+
+It is not specified exactly, how they compute the 2-norm; I'm guessing
+it is a integral in the finite element sense.
+
+Also for the time-averaging, they may have actually used the physical time-step.
+When reporting the error, the area is assumed to be [0,2*pi]^2.
+
+## FIG6
+
 Comparison with results of Krämer.
 
 Settings:
@@ -83,15 +127,15 @@ Domain [0,2 pi]^2, containing four vortices
 
 This example is done in Excel
 
-## FIG5
+## FIG7
 
 Comparison with results of Chen (2021)
 
-## FIG6
+## FIG8
 
 Comparison with results of Guo & Zhao (2003)
 
-## FIG 7
+## FIG9
 
 Shear wave case of Sofonea & Sekerka (2003)
 
