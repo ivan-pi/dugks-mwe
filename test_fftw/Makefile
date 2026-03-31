@@ -4,12 +4,12 @@ FFLAGS=-Wall -Wextra -pedantic -Wno-unused-parameter -Og
 CXX=g++
 CXXFLAGS=-std=c++17 -Wall -Wextra -pedantic -Og
 
-# Library selection
-FFTW3_DIR=/opt/homebrew/Cellar/fftw/3.3.10_3
-INC=-I $(FFTW3_DIR)/include
-LDFLAGS=-L $(FFTW3_DIR)/lib
-LDFLAGS+=-Wl,-rpath,$(FFTW3_DIR)/lib
-LDLIBS=-lfftw3
+# Default directory if not provided on command line
+FFTW3_DIR ?= /usr/local
+
+INC      := -I$(FFTW3_DIR)/include
+LDFLAGS  := -L$(FFTW3_DIR)/lib -Wl,-rpath,$(FFTW3_DIR)/lib
+LDLIBS   := -lfftw3
 
 # Targets
 TARGETS=test_fftw_interface test_suite
@@ -26,7 +26,7 @@ test_fftw_interface: test_fftw_interface.f90
 test_suite: test_suite.cpp
 	$(CXX) $(CXXFLAGS) $(INC) $(LDFLAGS) -o $@ $< $(LDLIBS)
 
-run: $(TARGETS)
+run: all
 	./test_suite
 	./test_fftw_interface
 
@@ -40,7 +40,7 @@ dist: clean
 	@echo "Creating distribution tarball..."
 	@mkdir -p $(DIST_DIR)
 	@# Copy only source files, headers, and the Makefile
-	cp Makefile *.cpp *.f90 $(DIST_DIR)/
+	cp README.txt Makefile *.cpp *.f90 $(DIST_DIR)/
 	@# Create the tarball and remove the temporary directory
 	tar -czvf $(DIST_DIR).tar.gz $(DIST_DIR)
 	@rm -rf $(DIST_DIR)

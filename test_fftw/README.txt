@@ -2,6 +2,10 @@
 FFTW many_dft Test Suite
 2026-04-01
 ================================================================
+DISCLAIMER: AI-ASSISTED GENERATION
+This test suite was generated with the assistance of the
+Gemini 3 Flash LLM.
+================================================================
 
 OVERVIEW:
 This MWE (Minimum Working Example) is designed to validate the 
@@ -32,6 +36,5 @@ By default it the GNU compilers are expected.
 FILES:
   - Makefile:                 Multi-vendor build system
   - test_suite.cpp:           Core C++ testing logic
-  - test_fftw_interface.f90:  Fortran interface check
-  - run.sh:                   Build and run tests.
+  - test_fftw_interface.f90:  Fortran interface checks
 ================================================================
