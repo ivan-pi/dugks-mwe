@@ -24,7 +24,7 @@ test_suite: test_suite.cpp
 	$(CXX) $(CXXFLAGS) $(INC) $(LDFLAGS) -o $@ $< $(LDLIBS)
 
 run: all
-	./test_fftw
+	./test_fftw -p 2
 	./test_suite
 
 # Package Metadata

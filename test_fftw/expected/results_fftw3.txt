@@ -1,0 +1,58 @@
+gfortran -Wall -Wextra -pedantic -Wno-unused-parameter -O2 -I/opt/homebrew/Cellar/fftw/3.3.10_3//include -L/opt/homebrew/Cellar/fftw/3.3.10_3//lib -Wl,-rpath,/opt/homebrew/Cellar/fftw/3.3.10_3//lib -o test_fftw test_fftw.f90 -lfftw3
+g++ -std=c++17 -Wall -Wextra -pedantic -Og -I/opt/homebrew/Cellar/fftw/3.3.10_3//include -L/opt/homebrew/Cellar/fftw/3.3.10_3//lib -Wl,-rpath,/opt/homebrew/Cellar/fftw/3.3.10_3//lib -o test_suite test_suite.cpp -lfftw3
+./test_fftw -p 2
+ Starting FFTW R2C Interface Tests...
+ Padding (npad):  2
+ ------------------------------------
+ Test 1: 1D R2C Differentiation
+  Max Absolute Error:   0.1443E-14
+    Result: SUCCESS
+ ------------------------------------
+ Test 3: 1D Periodic FE Solver
+  Max Absolute Error:   0.3553E-14
+    Result: SUCCESS
+ ------------------------------------
+ Test 4: 1D Cyclic Shift
+  Max Absolute Error:   0.1388E-15
+    Result: SUCCESS
+ ------------------------------------
+ Test 5: Parseval's Theorem
+  Energy Difference:   0.7105E-14
+    Result: SUCCESS
+ ------------------------------------
+ Test 6: 2D R2C Identity
+  Max Absolute Error:    0.6661E-15
+   Result: SUCCESS
+ ------------------------------------
+ Test 7: 2D Many R2C (Full Volume)
+  Max Absolute Error:    0.6661E-15
+   Result: SUCCESS
+ ------------------------------------
+ Tests Completed.
+./test_suite
+Running Test 1: 2D Batch Embedded (nembed)...
+  Result: SUCCESS
+    Slice 0 DC: 10
+    Slice 1 DC: 20
+Running Test 2: Interleaved Strides (istride)...
+  Result: SUCCESS (DC component: 8)
+Running Test 3: In-Place Advanced...
+  Result: SUCCESS (DC component: 10)
+Running Test 4: 2D Tight Batch (odist validation)...
+  Result: SUCCESS (Batch distances verified)
+Running Test 5: 2D Advanced many_dft (Spectral Deriv)...
+  Max Error (2D many_dft d/dx): 6.66134e-16
+  Result: SUCCESS
+Running Test 6 (Simplified): 2D Laplacian of sin(2pi*x)...
+  Max Error (Simple 2D Laplacian): 7.10543e-15
+  Result: SUCCESS
+Running Test 7: 2D Advanced many_dft (sin*cos Laplacian)...
+  L2 Error: 5.94396e-13
+  Max Error: 2.28084e-12
+  Result: SUCCESS
+Running Test 8: 2D Advanced many_dft (Complex Nested Laplacian)...
+  L2 Error: 5.73822e-12
+  Max Error: 1.96678e-11
+  Result: SUCCESS
+Test 9: Round-Trip Precision (f -> FFT -> IFFT -> f)...
+  Round-trip Max Error: 8.88178e-16

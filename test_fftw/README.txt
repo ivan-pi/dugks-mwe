@@ -18,7 +18,7 @@ It specifically tests the handling of:
 SYSTEM REQUIREMENTS:
   - C++17 compliant compiler (g++)
   - GFortran (for interface parity tests)
-  - FFTW3 or ArmPL 26.0+
+  - FFTW3, ArmPL 26.0+, ...
 
 COMPILATION:
 The provided Makefile supports standard Fortran, C++ and linker parameters.

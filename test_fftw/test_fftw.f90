@@ -48,11 +48,13 @@ program test_fftw
     end do
 
     ! Seed random number generator
-    if (custom_seed) call set_reproducible_seed(seed_val)
 
     print *, "Starting FFTW R2C Interface Tests..."
     print "(A, I2)", " Padding (npad): ", npad
-    print "(A, I12)", " Random Seed:    ", seed_val
+    if (custom_seed) then
+        call set_reproducible_seed(seed_val)
+        print "(A, I12)", " PRNG Seed:    ", seed_val
+    end if
     print *, "------------------------------------"
 
     call test_1d_differentiation(npad)
