@@ -1,6 +1,6 @@
 # Compiler settings
 FC=gfortran
-FFLAGS=-Wall -Wextra -pedantic -Wno-unused-parameter -Og
+FFLAGS=-Wall -Wextra -pedantic -Wno-unused-parameter -O2
 CXX=g++
 CXXFLAGS=-std=c++17 -Wall -Wextra -pedantic -Og
 
@@ -12,23 +12,20 @@ LDFLAGS  := -L$(FFTW3_DIR)/lib -Wl,-rpath,$(FFTW3_DIR)/lib
 LDLIBS   := -lfftw3
 
 # Targets
-TARGETS=test_fftw_interface test_suite
+TARGETS=test_fftw test_suite
 
 .PHONY: all
 all: $(TARGETS)
 
-test_fftw_interface_embed: test_fftw_interface_embed.f90
-	$(FC) $(FFLAGS) $(INC) $(LDFLAGS) -o $@ $< $(LDLIBS)
-
-test_fftw_interface: test_fftw_interface.f90
+test_fftw: test_fftw.f90
 	$(FC) $(FFLAGS) $(INC) $(LDFLAGS) -o $@ $< $(LDLIBS)
 
 test_suite: test_suite.cpp
 	$(CXX) $(CXXFLAGS) $(INC) $(LDFLAGS) -o $@ $< $(LDLIBS)
 
 run: all
+	./test_fftw
 	./test_suite
-	./test_fftw_interface
 
 # Package Metadata
 PACKAGE_NAME := test_fftw
@@ -48,5 +45,5 @@ dist: clean
 
 .PHONY: clean
 clean:
-	$(RM) $(TARGETS) *.o *.tar.gz
+	$(RM) $(TARGETS) *.o *.mod *.tar.gz
 	$(RM) -rf $(DIST_DIR)

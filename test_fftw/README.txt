@@ -24,7 +24,7 @@ COMPILATION:
 The provided Makefile supports standard Fortran, C++ and linker parameters.
 By default it the GNU compilers are expected.
 
-  Use the variable FFTW3_DIR to configure the location, i.e.
+  Use the variable FFTW3_DIR to configure the library location, i.e.
     make FFTW3_DIR=/path/to/fftw3 all
 
   To run the tests:
@@ -34,7 +34,7 @@ By default it the GNU compilers are expected.
     make dist
 
 FILES:
-  - Makefile:                 Multi-vendor build system
-  - test_suite.cpp:           Core C++ testing logic
-  - test_fftw_interface.f90:  Fortran interface checks
+  - Makefile:         Simple manual Makefile
+  - test_fftw.f90:    Fortran interface checks
+  - test_suite.cpp:   C++ interface checks
 ================================================================
