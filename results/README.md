@@ -118,14 +118,15 @@ Comparison with results of Krämer.
 Settings:
 * Ma = 0.008
 * CFL = 0.1
-
 * nu = pi / 5
-
 * tmax = ln(10) t_c, i.e. exp(-2 nu t_max) = 0.1
 
 Domain [0,2 pi]^2, containing four vortices
 
-This example is done in Excel
+This example is done in Excel.
+
+Also here, the L2-norm is very likely obtained as the integral; see
+Natrium sources for more details
 
 ## FIG7
 
@@ -138,7 +139,6 @@ Comparison with results of Guo & Zhao (2003)
 ## FIG9
 
 Shear wave case of Sofonea & Sekerka (2003)
-
 
 
 ## Higher-order accuracy
