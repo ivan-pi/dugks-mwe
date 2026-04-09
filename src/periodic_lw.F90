@@ -67,7 +67,7 @@ module periodic_lw
    integer, parameter :: nlimit = 100**2
 
    ! Module level flags to switch between FDM and FEM variants
-   logical, parameter :: use_fem = .true.
+   logical, parameter :: use_fem = .false.
    logical, parameter :: use_fem_mm = .false.
 
 contains
@@ -77,7 +77,7 @@ contains
    !
 
    subroutine alloc_grid_lw(grid,nx,ny,nu,dt,log)
-      class(lattice_grid_lw), intent(out) :: grid
+      class(lattice_grid_lw), intent(inout) :: grid
       integer, intent(in) :: nx, ny
       real(wp), intent(in) :: nu, dt
       logical, intent(in), optional :: log
@@ -92,6 +92,9 @@ contains
 
       print *, "Calling parent allocator"
       call alloc_grid(grid,nx,ny,nu,dt,log)
+
+      grid%kernel => lw_stream_kernel_fdm_isotropic
+      !grid%kernel => lw_stream_kernel_interp
 
       print *, "Doing internal allocation"
 
@@ -130,6 +133,10 @@ contains
             grid%omega)
       end if
 
+   contains
+
+#include "d2q9_collision.fi"
+
    end subroutine
 
    subroutine lw_stream(grid)
@@ -143,6 +150,9 @@ contains
                fsrc=grid%f(:,:,:,grid%iold), &
                fdst=grid%f(:,:,:,grid%inew), &
                w=grid%wfem)
+
+! TODO: for FFTW, we may obtain benefits by using aligned allocations
+!       with fftw_alloc_real and fftw_alloc_complex
 
             ! Apply mass matrix, u = M^-1 * f
             call grid%mm%solve(u=grid%ftmp,f=grid%f(:,:,:,grid%inew))
@@ -446,6 +456,84 @@ contains
 
    end subroutine
 
+   subroutine lw_stream_kernel_fdm_isotropic(nx,ny,fsrc,fdst,dt)
+      integer, intent(in), value :: nx, ny
+      real(wp), intent(in) :: fsrc(1-nhalo:ny+nhalo,1-nhalo:nx+nhalo,0:8)
+      real(wp), intent(out) :: fdst(1-nhalo:ny+nhalo,1-nhalo:nx+nhalo,0:8)
+      real(wp), intent(in) :: dt
+
+      integer :: i, j, k
+
+      real(wp), dimension(0:8) :: vx, vy, vxx, vxy, vyy
+      real(wp) :: dE, dW, dN, dS, dNE, dNW
+      real(wp) :: GX, GY, GXX, GYY
+
+      vx = -dt*cx
+      vy = -dt*cy
+      vxx = 0.5_wp*vx*vx
+      vxy = vx*vy
+      vyy = 0.5_wp*vy*vy
+
+      !
+      ! Streaming
+      !
+      fdst(1:ny,1:nx,0) = fsrc(1:ny,1:nx,0)
+
+      ! From the difference stencil (!)
+      vx = vx * 0.5_wp / 6.0_wp
+      vy = vy * 0.5_wp / 6.0_wp
+      vxy = vxy * 0.25_wp
+
+      vxx = vxx/12.0_wp
+      vyy = vyy/12.0_wp
+
+      !$omp parallel if(nx*ny > nlimit) default(private) shared(nx,ny,fsrc,fdst) &
+      !$omp     firstprivate(vx,vy,vxx,vxy,vyy)
+
+      !$omp do collapse(NCOLLAPSE) schedule(static)
+      do k = 1, 8
+#ifndef __flang__
+         !$omp tile sizes(TILE_1,TILE_2)
+#endif
+         do j = 1, nx
+            do i = 1, ny
+
+               GY = (fsrc(i+1,j+1,k) - fsrc(i-1,j+1,k)) + &
+                  4*(fsrc(i+1,j  ,k) - fsrc(i-1,j  ,k)) + &
+                    (fsrc(i+1,j-1,k) - fsrc(i-1,j-1,k))
+
+               GX = (fsrc(i+1,j+1,k) - fsrc(i+1,j-1,k)) + &
+                  4*(fsrc(i  ,j+1,k) - fsrc(i  ,j-1,k)) + &
+                    (fsrc(i-1,j+1,k) - fsrc(i-1,j-1,k))
+
+
+               GYY = (fsrc(i+1,j+1,k) - 2*fsrc(i,j+1,k) + fsrc(i-1,j+1,k)) + &
+                  10*(fsrc(i+1,j+0,k) - 2*fsrc(i,j+0,k) + fsrc(i-1,j+0,k)) + &
+                     (fsrc(i+1,j-1,k) - 2*fsrc(i,j-1,k) + fsrc(i-1,j-1,k))
+
+               GXX = (fsrc(i+1,j+1,k) - 2*fsrc(i+1,j,k) + fsrc(i+1,j-1,k)) + &
+                  10*(fsrc(i+0,j+1,k) - 2*fsrc(i+0,j,k) + fsrc(i+0,j-1,k)) + &
+                     (fsrc(i-1,j+1,k) - 2*fsrc(i-1,j,k) + fsrc(i-1,j-1,k))
+
+               !dE = fsrc(i,j+1,k) - fsrc(i,j,k)
+               !dW = fsrc(i,j,k) - fsrc(i,j-1,k)
+               !dN = fsrc(i+1,j,k) - fsrc(i,j,k)
+               !dS = fsrc(i,j,k) - fsrc(i-1,j,k)
+
+               ! Mixed differences
+               dNE = (fsrc(i+1,j+1,k) - fsrc(i-1,j+1,k))
+               dNW = (fsrc(i+1,j-1,k) - fsrc(i-1,j-1,k))
+
+               fdst(i,j,k) = fsrc(i,j,k) + vx(k) * GX + vy(k) * GY + &
+                     + (vxx(k) * GXX + vyy(k) * GYY + vxy(k) * (dNE - dNW))
+
+            end do
+         end do
+      end do
+
+      !$omp end parallel
+
+   end subroutine
 
    subroutine lw_pbc_kernel(nx,ny,fdst)
       implicit none
@@ -481,122 +569,46 @@ contains
 
    end subroutine
 
+   subroutine lw_stream_kernel_interp(nx,ny,fsrc,fdst,dt)
+      integer, intent(in), value :: nx, ny
+      real(wp), intent(in) :: fsrc(1-nhalo:ny+nhalo,1-nhalo:nx+nhalo,0:8)
+      real(wp), intent(out) :: fdst(1-nhalo:ny+nhalo,1-nhalo:nx+nhalo,0:8)
+      real(wp), intent(in) :: dt
 
-   subroutine d2q9_collision(nx,ny,f,rho,ux,uy,omega,indp)
+      integer :: i, j, k
 
-   !$ use omp_lib, only: omp_get_num_threads, omp_get_thread_num
+      integer, parameter :: CX(0:8) = -[0, 1, 0,-1, 0,1,-1,-1, 1]
+      integer, parameter :: CY(0:8) = -[0, 0, 1, 0,-1,1, 1,-1,-1]
 
-      integer, intent(in) :: nx, ny
-      real(wp), intent(in) :: omega
-      real(wp), intent(inout) :: f(1-nhalo:ny+nhalo,1-nhalo:nx+nhalo,0:8)
-      real(wp), intent(out) :: rho(ny,nx), ux(ny,ny), uy(ny,nx), indp(ny,nx)
+      real(wp) :: d1, d2
+      real(wp) :: c
 
-      real(wp) :: omegabar, omega_w0, omega_ws, omega_wd
-      real(wp) :: t0,t1,t2,t3,t4,t5,t6,t7,t8
-      real(wp) :: drho
-      real(wp) :: vel_trm_13, vel_trm_24
-      real(wp) :: vel_trm_57, vel_trm_68
-      real(wp) :: velxpy, velxmy
+      c = -dt
 
-      integer :: i, j
+      !
+      ! Streaming
+      !
+      fdst(1:ny,1:nx,0) = fsrc(1:ny,1:nx,0)
 
-      real(wp), parameter :: one_third = 1.0_wp / 3.0_wp
-      real(wp), parameter :: one_half = 1.0_wp / 2.0_wp
-      real(wp), parameter :: th = 3.0_wp / 2.0_wp
+      !$omp parallel if(nx*ny > nlimit) default(private) shared(nx,ny,fsrc,fdst) &
+      !$omp     firstprivate(c)
 
-      ! TODO: THIS KERNEL DOESN'T SUPPORT SHIFTING...
-      logical, parameter :: shift = .false.
+      !$omp do
+      do j = 1, nx
+      !$omp unroll full
+      do k = 1, 8
+            do i = 1, ny
 
-      omegabar = 1.0_wp - omega
-      omega_w0 = 3.0_wp * omega * w0
-      omega_ws = 3.0_wp * omega * ws
-      omega_wd = 3.0_wp * omega * wd
+               d1 = 0.5_wp*(fsrc(i+CY(k),j+CX(k),k) - fsrc(i-CY(k),j-CX(k),k))
+               d2 = fsrc(i+CY(k),j+CX(k),k) - 2.0_wp*fsrc(i,j,k) + &
+                   fsrc(i-CY(k),j-CX(k),k)
 
-      !$omp parallel if (nx*ny > nlimit) default(private) shared(nx,ny,f,rho,ux,uy,indp) &
-      !$omp    firstprivate(omega,omegabar,omega_w0,omega_ws,omega_wd)
+               ! Quadratic central interpolation
+               fdst(i,j,k) = fsrc(i,j,k) - c*d1 + 0.5_wp*c**2*d2
 
-      !$omp do schedule(static)
-      xloop: do j = 1, nx
-
-#ifndef __flang__
-      !$omp simd private(drho, t0,t1,t2,t3,t4,t5,t6,t7,t8)
-#endif
-      do i = 1, ny
-
-         ! pull pdfs travelling in different directions
-         t0 = f(i,j,0)
-         t1 = f(i,j,1)
-         t2 = f(i,j,2)
-         t3 = f(i,j,3)
-         t4 = f(i,j,4)
-         t5 = f(i,j,5)
-         t6 = f(i,j,6)
-         t7 = f(i,j,7)
-         t8 = f(i,j,8)
-
-         ! density
-         drho = (((t5 + t7) + (t6 + t8)) + &
-                ((t1 + t3) + (t2 + t4))) + t0
-
-         if (shift) then
-            rho(i,j) = drho + rho0
-         else
-            rho(i,j) = drho
-         end if
-
-         ! velocity
-         ux(i,j) = (((t5 - t7) + (t8 - t6)) + (t1 - t3)) / rho(i,j)
-         uy(i,j) = (((t5 - t7) + (t6 - t8)) + (t2 - t4)) / rho(i,j)
-
-         if (shift) then
-            indp(i,j) = -0.5_wp * (ux(i,j)**2 + uy(i,j)**2)
-         !   indp(i,j) = -1.5_wp * (uxx + uyy)
-         else
-            indp(i,j) = 1.0_wp/3.0_wp - 0.5_wp * (ux(i,j)**2 + uy(i,j)**2)
-         !   indp(i,j) = 1.0_wp - 1.5_wp * (uxx + uyy)
-         endif
-
-         ! direction independent part
-         !indp(i,j) = one_third - 0.5_wp * (ux(i,j)**2 + uy(i,j)**2)
-
-         ! pdf zero
-         f(i,j,0) = omegabar*f(i,j,0) + omega_w0*rho(i,j)*indp(i,j)
-
+            end do
+         end do
       end do
-
-#ifndef __flang__
-      !$omp simd private(vel_trm_13,vel_trm_24)
-#endif
-      do i = 1, ny
-         vel_trm_13 = indp(i,j) + th * ux(i,j) * ux(i,j)
-
-         f(i,j,1) = omegabar*f(i,j,1) + omega_ws * rho(i,j) * (vel_trm_13 + ux(i,j))
-         f(i,j,3) = omegabar*f(i,j,3) + omega_ws * rho(i,j) * (vel_trm_13 - ux(i,j))
-
-         vel_trm_24 = indp(i,j) + th * uy(i,j) * uy(i,j)
-
-         f(i,j,2) = omegabar*f(i,j,2) + omega_ws * rho(i,j) * (vel_trm_24 + uy(i,j))
-         f(i,j,4) = omegabar*f(i,j,4) + omega_ws * rho(i,j) * (vel_trm_24 - uy(i,j))
-      end do
-
-#ifndef __flang__
-      !$omp simd private(velxpy,vel_trm_57,velxmy,vel_trm_68)
-#endif
-      do i = 1, ny
-         velxpy = ux(i,j) + uy(i,j)
-         vel_trm_57 = indp(i,j) + th * velxpy * velxpy
-         f(i,j,5) = omegabar*f(i,j,5) + omega_wd * rho(i,j) * (vel_trm_57 + velxpy)
-         f(i,j,7) = omegabar*f(i,j,7) + omega_wd * rho(i,j) * (vel_trm_57 - velxpy)
-
-         velxmy = ux(i,j) - uy(i,j)
-         vel_trm_68 = indp(i,j) + th * velxmy * velxmy
-
-         f(i,j,6) = omegabar*f(i,j,6) + omega_wd * rho(i,j) * (vel_trm_68 - velxmy)
-         f(i,j,8) = omegabar*f(i,j,8) + omega_wd * rho(i,j) * (vel_trm_68 + velxmy)
-      end do
-
-      end do xloop
-      !$omp end do
 
       !$omp end parallel
 

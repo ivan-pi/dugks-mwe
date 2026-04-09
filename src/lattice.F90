@@ -29,6 +29,7 @@ module lattice
    type, abstract :: lattice_grid
       integer :: nx, ny
 
+      integer :: nhalo = 1
       real(wp), allocatable :: f(:,:,:,:)
 
       real(wp), allocatable :: rho(:,:), wrk(:,:)
@@ -36,7 +37,8 @@ module lattice
       real(wp), allocatable ::  uy(:,:)
       
       real(wp) :: nu, dt, tau
-      real(wp) :: omega, trt_magic
+      real(wp) :: omega
+      real(wp) :: trt_magic = 0.25_wp
       real(wp) :: csqr
       
       integer :: iold, inew, imid
@@ -56,6 +58,8 @@ module lattice
       procedure(bc_interface),        pass(grid), deferred :: bc
       procedure :: set_output_folder
       procedure :: alloc => alloc_grid
+      procedure, non_overridable :: alloc_mem
+      procedure :: set_properties
    end type
 
    abstract interface
@@ -97,28 +101,27 @@ module lattice
 #endif
    real(wp), parameter :: rho0 = 1.0_wp
 
-   integer, parameter :: nhalo = 1
 contains
 
-   subroutine alloc_grid(grid,nx,ny,nu,dt,log)
+! TODO: generalize the way we allocate halo-layers
+!       perhaps we need to use a private constructor, that can be called
+!       by child classes?
+   subroutine alloc_mem(grid,nx,ny,nhalo)
       class(lattice_grid), intent(out) :: grid
-      
-      integer, intent(in) :: nx, ny
-      real(wp), intent(in) :: nu, dt
-      logical, intent(in), optional :: log
-
-      integer, parameter :: nf = 2
-      logical :: log_
-      character(len=:), allocatable :: logfile_
+      integer, intent(in) :: nx, ny, nhalo
 
       grid%nx = nx
       grid%ny = ny
+      grid%nhalo = nhalo
 
       ! PDF memory
 #ifdef DUGKS
+      ! TODO: generalize to ghost-layer approach
       allocate(grid%f(ny,nx,0:8,nf))
 #else
-      allocate(grid%f(1-nhalo:ny+nhalo,1-nhalo:nx+nhalo,0:8,2))
+      associate(nh => grid%nhalo)
+         allocate(grid%f(1-nh:ny+nh,1-nh:nx+nh,0:8,2))
+      end associate
 #endif
 
       ! Macroscopic fields
@@ -127,6 +130,11 @@ contains
       allocate(grid%ux(ny,nx))
       allocate(grid%uy(ny,nx))
 
+      ! Pointers
+      grid%inew = 1
+      grid%iold = 2
+
+      ! TODO: move to own function
       block
          real(wp) :: macro_mem, pdf_mem
 
@@ -137,11 +145,21 @@ contains
          write(*,'(A,G0)') "Mem. pdf (MB)    = ", pdf_mem / 1024.0_wp**2
       end block
 
-      !
-      ! Initialize field pointers
-      !
-      grid%inew = 1
-      grid%iold = 2
+   end subroutine
+
+   subroutine alloc_grid(grid,nx,ny,nu,dt,log)
+      class(lattice_grid), intent(inout) :: grid
+
+      integer, intent(in) :: nx, ny
+      real(wp), intent(in) :: nu, dt
+      logical, intent(in), optional :: log
+
+      integer, parameter :: nf = 2
+      logical :: log_
+      character(len=:), allocatable :: logfile_
+
+      ! Private memory constructor
+      call alloc_mem(grid,nx,ny,nhalo=1)
 
       !
       ! Initialize logging file
@@ -159,7 +177,7 @@ contains
       !
       ! Initialize fluid settings
       !
-      call set_properties(grid,nu,dt,magic=0.25_wp)
+      call set_properties(grid,nu,dt)
 
    end subroutine
 
@@ -218,8 +236,6 @@ contains
          !grid%trt_magic = (2.0_wp - grid%omega)**2 / (4.0_wp * (grid%omega)**2)
          grid%trt_magic = (tau/dt)**2
       end if
-
-      print *, "trt magic = ", grid%trt_magic
 
    end subroutine
 
@@ -326,21 +342,23 @@ contains
    end subroutine
 #endif
 
+   !> Updates the rho, ux, uy fields, using the current PDF values
    subroutine update_macros(grid)
       class(lattice_grid), intent(inout) :: grid
 
-      call update_macros_kernel(grid%nx, grid%ny, &
+      call update_macros_kernel(grid%nhalo, grid%nx, grid%ny, &
          grid%f(:,:,:,grid%iold), &
          grid%rho, grid%ux, grid%uy)
 
    contains
 
-      subroutine update_macros_kernel(nx,ny,f,rho,ux,uy)
-         integer, intent(in) :: nx, ny
+      subroutine update_macros_kernel(nhalo,nx,ny,f,rho,ux,uy)
+         integer, intent(in) :: nhalo, nx, ny
 #ifdef DUGKS
          real(wp), intent(in), contiguous :: f(:,:,0:)
 #else
-         real(wp), intent(in) :: f(0:ny+1,0:nx+1,0:8)
+         ! TODO: generalize to multiple halo layers
+         real(wp), intent(in) :: f(1-nhalo:ny+nhalo,1-nhalo:nx+nhalo,0:8)
 #endif
          real(wp), intent(out), dimension(ny,nx) :: rho, ux, uy
 
@@ -450,6 +468,7 @@ contains
 
    end function
 
+   !> Print the effective bandwidth
    subroutine report_bw(grid)
       class(lattice_grid), intent(in) :: grid
 
@@ -475,6 +494,11 @@ contains
       write(*,'("  Boundary Time  = ",G0.3," s (",F4.1," %)")') grid%tb, 100*grid%tb/tt
       end associate
 
+   end subroutine
+
+   subroutine report_memory(grid)
+      class(lattice_grid), intent(in) :: grid
+      ! TODO: print memory usage
    end subroutine
 
 end module

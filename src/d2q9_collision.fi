@@ -1,0 +1,119 @@
+   subroutine d2q9_collision(nx,ny,f,rho,ux,uy,omega,indp)
+
+   !$ use omp_lib, only: omp_get_num_threads, omp_get_thread_num
+
+      integer, intent(in) :: nx, ny
+      real(wp), intent(in) :: omega
+      real(wp), intent(inout) :: f(1-nhalo:ny+nhalo,1-nhalo:nx+nhalo,0:8)
+      real(wp), intent(out) :: rho(ny,nx), ux(ny,ny), uy(ny,nx), indp(ny,nx)
+
+      real(wp) :: omegabar, omega_w0, omega_ws, omega_wd
+      real(wp) :: t0,t1,t2,t3,t4,t5,t6,t7,t8
+      real(wp) :: drho
+      real(wp) :: vel_trm_13, vel_trm_24
+      real(wp) :: vel_trm_57, vel_trm_68
+      real(wp) :: velxpy, velxmy
+
+      integer :: i, j
+
+      real(wp), parameter :: one_third = 1.0_wp / 3.0_wp
+      real(wp), parameter :: one_half = 1.0_wp / 2.0_wp
+      real(wp), parameter :: th = 3.0_wp / 2.0_wp
+
+      ! TODO: THIS KERNEL DOESN'T SUPPORT SHIFTING...
+      logical, parameter :: shift = .false.
+
+      omegabar = 1.0_wp - omega
+      omega_w0 = 3.0_wp * omega * w0
+      omega_ws = 3.0_wp * omega * ws
+      omega_wd = 3.0_wp * omega * wd
+
+      !$omp parallel if (nx*ny > nlimit) default(private) shared(nx,ny,f,rho,ux,uy,indp) &
+      !$omp    firstprivate(omega,omegabar,omega_w0,omega_ws,omega_wd)
+
+      !$omp do schedule(static)
+      xloop: do j = 1, nx
+
+#ifndef __flang__
+      !$omp simd private(drho, t0,t1,t2,t3,t4,t5,t6,t7,t8)
+#endif
+      do i = 1, ny
+
+         ! pull pdfs travelling in different directions
+         t0 = f(i,j,0)
+         t1 = f(i,j,1)
+         t2 = f(i,j,2)
+         t3 = f(i,j,3)
+         t4 = f(i,j,4)
+         t5 = f(i,j,5)
+         t6 = f(i,j,6)
+         t7 = f(i,j,7)
+         t8 = f(i,j,8)
+
+         ! density
+         drho = (((t5 + t7) + (t6 + t8)) + &
+                ((t1 + t3) + (t2 + t4))) + t0
+
+         if (shift) then
+            rho(i,j) = drho + rho0
+         else
+            rho(i,j) = drho
+         end if
+
+         ! velocity
+         ux(i,j) = (((t5 - t7) + (t8 - t6)) + (t1 - t3)) / rho(i,j)
+         uy(i,j) = (((t5 - t7) + (t6 - t8)) + (t2 - t4)) / rho(i,j)
+
+         if (shift) then
+            indp(i,j) = -0.5_wp * (ux(i,j)**2 + uy(i,j)**2)
+         !   indp(i,j) = -1.5_wp * (uxx + uyy)
+         else
+            indp(i,j) = 1.0_wp/3.0_wp - 0.5_wp * (ux(i,j)**2 + uy(i,j)**2)
+         !   indp(i,j) = 1.0_wp - 1.5_wp * (uxx + uyy)
+         endif
+
+         ! direction independent part
+         !indp(i,j) = one_third - 0.5_wp * (ux(i,j)**2 + uy(i,j)**2)
+
+         ! pdf zero
+         f(i,j,0) = omegabar*f(i,j,0) + omega_w0*rho(i,j)*indp(i,j)
+
+      end do
+
+#ifndef __flang__
+      !$omp simd private(vel_trm_13,vel_trm_24)
+#endif
+      do i = 1, ny
+         vel_trm_13 = indp(i,j) + th * ux(i,j) * ux(i,j)
+
+         f(i,j,1) = omegabar*f(i,j,1) + omega_ws * rho(i,j) * (vel_trm_13 + ux(i,j))
+         f(i,j,3) = omegabar*f(i,j,3) + omega_ws * rho(i,j) * (vel_trm_13 - ux(i,j))
+
+         vel_trm_24 = indp(i,j) + th * uy(i,j) * uy(i,j)
+
+         f(i,j,2) = omegabar*f(i,j,2) + omega_ws * rho(i,j) * (vel_trm_24 + uy(i,j))
+         f(i,j,4) = omegabar*f(i,j,4) + omega_ws * rho(i,j) * (vel_trm_24 - uy(i,j))
+      end do
+
+#ifndef __flang__
+      !$omp simd private(velxpy,vel_trm_57,velxmy,vel_trm_68)
+#endif
+      do i = 1, ny
+         velxpy = ux(i,j) + uy(i,j)
+         vel_trm_57 = indp(i,j) + th * velxpy * velxpy
+         f(i,j,5) = omegabar*f(i,j,5) + omega_wd * rho(i,j) * (vel_trm_57 + velxpy)
+         f(i,j,7) = omegabar*f(i,j,7) + omega_wd * rho(i,j) * (vel_trm_57 - velxpy)
+
+         velxmy = ux(i,j) - uy(i,j)
+         vel_trm_68 = indp(i,j) + th * velxmy * velxmy
+
+         f(i,j,6) = omegabar*f(i,j,6) + omega_wd * rho(i,j) * (vel_trm_68 - velxmy)
+         f(i,j,8) = omegabar*f(i,j,8) + omega_wd * rho(i,j) * (vel_trm_68 + velxmy)
+      end do
+
+      end do xloop
+      !$omp end do
+
+      !$omp end parallel
+
+   end subroutine
