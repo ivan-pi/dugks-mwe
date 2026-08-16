@@ -65,7 +65,7 @@ contains
 
       do x = 1, self%nx
          xx = (x - 1) + 0.5_wp
-         do y = 1, self%nx
+         do y = 1, self%ny
             yy = (y - 1) + 0.5_wp
 
             ux(y,x) = -umax*sqrt(ky/kx)*cos(kx*xx)*sin(ky*yy)*exp(-t/td)

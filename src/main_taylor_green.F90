@@ -173,9 +173,9 @@ program main_taylor_green
 
    tmax = log(2._wp)*tg%decay_time()
 !   tmax = 0.7895683520871487 * tg%decay_time() ! Wu et al. 2018, or 10^5 timesteps
-!   nsteps = ceiling(tmax / dt)
+   nsteps = ceiling(tmax / dt)
 
-   nsteps = 20000
+!   nsteps = 20000
 !   tmax = nsteps *dt
 
 !   tmax =

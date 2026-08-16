@@ -93,7 +93,9 @@ contains
       print *, "Calling parent allocator"
       call alloc_grid(grid,nx,ny,nu,dt,log)
 
-      grid%kernel => lw_stream_kernel_fdm_isotropic
+!      grid%kernel => lw_stream_kernel_fdm_isotropic
+      grid%kernel => lw_stream_kernel_fdm_v2
+      print *, "using kernel lw_stream_kernel_fdm_v2"
       !grid%kernel => lw_stream_kernel_interp
 
       print *, "Doing internal allocation"
