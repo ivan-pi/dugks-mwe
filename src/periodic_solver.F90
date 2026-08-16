@@ -78,6 +78,7 @@ contains
 
         ! 5. Scale and Output
         u = work_in * this%scale
+
     end subroutine
 
     subroutine destroy(this)

@@ -17,6 +17,9 @@ program main_taylor_green
 
 #ifdef _OPENMP
    use omp_lib
+#endif
+
+#if WITH_FFTW
    use batch_periodic_solver_mod, only: &
       fftw_init_threads, fftw_plan_with_nthreads, fftw_cleanup_threads
 #endif
@@ -76,7 +79,7 @@ program main_taylor_green
    write(*,'("OpenMP: ", L1)') with_omp
    write(*,'("Max. threads: ",I0)') maxthr
 
-#ifdef _OPENMP
+#if WITH_FFTW
    istat = fftw_init_threads()
    if (istat == 0) then
        error stop "error: FFTW initialization failed."
@@ -243,7 +246,9 @@ program main_taylor_green
    call dealloc_grid(grid)
 !end do
 
-!$   call fftw_cleanup_threads()
+#if WITH_FFTW
+   call fftw_cleanup_threads()
+#endif
 
 contains
 
